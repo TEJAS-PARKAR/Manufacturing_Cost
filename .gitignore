@@ -1,0 +1,18 @@
+# Ignore environment variables and API keys
+.env
+
+# Ignore Python build artifacts and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Ignore local virtual environments
+venv/
+.venv/
+env/
+
+# Ignore Excel lock files
+~$*.xlsx
