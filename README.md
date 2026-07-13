@@ -29,31 +29,27 @@ frontend/
 
 ## Quick Start
 
-### 1. Install Dependencies
+### Recommended: run with the included scripts
+
+This project includes helper scripts that create a local virtual environment and run the app from it, so you avoid global `streamlit`/`uvicorn` path issues on any machine.
 
 ```bash
-pip install -r requirements.txt
+./scripts/setup.sh
+./scripts/start_backend.sh
+./scripts/start_frontend.sh
 ```
 
-### 2. Start the Backend
+### Alternative manual start
 
-Open a terminal and run:
+If you want to run without the helper scripts:
 
 ```bash
+python3 -m pip install -r requirements.txt
 uvicorn backend.main:app --reload --port 8000
-```
-
-The backend will be available at `http://127.0.0.1:8000`
-
-### 3. Start the Frontend
-
-Open another terminal and run:
-
-```bash
 streamlit run frontend/app.py
 ```
 
-The Streamlit app will open in your browser (typically at `http://localhost:8501`)
+The backend will be available at `http://127.0.0.1:8000` and the Streamlit app typically opens at `http://localhost:8501`.
 
 ## How It Works
 
