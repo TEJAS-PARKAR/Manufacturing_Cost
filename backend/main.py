@@ -4,9 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.routes.cost_routes import router
 
 app = FastAPI(
-    title="Manufacturing Cost Copilot API",
-    version="1.0.0",
-    description="Chat-driven manufacturing cost estimation with LLM-style extraction and XGBoost-powered prediction.",
+    title="AI-Powered Supplier Negotiation & Cost Estimation Copilot API",
+    version="2.0.0",
+    description="Supplier negotiation workflow for document extraction, memory-preserving discussions, review routing, and Tata Motors cost validation.",
 )
 
 app.add_middleware(

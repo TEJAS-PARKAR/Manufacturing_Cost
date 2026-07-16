@@ -84,6 +84,33 @@ class ChatCostResponse(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+class SupplierSessionRequest(BaseModel):
+    employee_id: str = Field(..., min_length=1, description="Supplier employee identifier")
+    part_number: str = Field(..., min_length=1, description="12-digit part number")
+
+
+class SupplierMessageRequest(SupplierSessionRequest):
+    message: str = Field(..., min_length=1, description="Supplier negotiation message")
+
+
+class SupplierSessionResponse(BaseModel):
+    employee_id: str
+    part_number: str
+    session_key: tuple[str, str]
+    status: str
+    extracted_data: Dict[str, Any]
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+    summary: str
+    missing_fields: List[str] = Field(default_factory=list)
+    review: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SupplierReviewDashboardResponse(BaseModel):
+    session: SupplierSessionResponse
+    recommendation: str
+    benchmark_comparison: Dict[str, Any]
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
