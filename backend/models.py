@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -71,6 +71,16 @@ class CostEstimateResponse(BaseModel):
     material: dict
     processes: List[dict]
     cost_breakdown: CostBreakdown
+    notes: List[str] = Field(default_factory=list)
+
+
+class ChatCostRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="Plain-language request from the user")
+
+
+class ChatCostResponse(BaseModel):
+    extracted_data: Dict[str, Any]
+    prediction: Dict[str, Any]
     notes: List[str] = Field(default_factory=list)
 
 
