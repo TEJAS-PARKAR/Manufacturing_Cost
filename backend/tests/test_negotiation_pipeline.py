@@ -49,3 +49,31 @@ def test_excel_upload_extracts_costing_fields_into_session() -> None:
     assert result["extracted_data"]["material"] == "CRCA"
     assert result["extracted_data"]["material_rate"] == 65.0
     assert result["extracted_data"]["coating"] == "POWDER COATING"
+
+
+def test_excel_upload_builds_raw_table_and_interpretation_layers() -> None:
+    service = SupplierNegotiationService()
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Supplier Quote"
+    worksheet.append(["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"])
+    worksheet.append(["ABC-001", 1200, "CRCA", 65, "Powder Coating", "Laser Cutting"])
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    payload = buffer.getvalue()
+
+    result = service.ingest_excel(
+        employee_id="EMP1001",
+        part_number="123456789012",
+        file_bytes=payload,
+        filename="quote.xlsx",
+    )
+
+    assert result["raw_table"]["sheet_name"] == "Supplier Quote"
+    assert result["raw_table"]["headers"] == ["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"]
+    assert result["excel_interpretation"]["quantity"] == 1200
+    assert result["excel_interpretation"]["material"] == "CRCA"
+    assert result["excel_interpretation"]["material_rate"] == 65.0
+    assert result["excel_interpretation"]["coating"] == "POWDER COATING"

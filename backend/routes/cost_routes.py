@@ -142,3 +142,18 @@ def get_supplier_review_dashboard(employee_id: str, part_number: str) -> dict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.post(
+    "/supplier/session/approve",
+    response_model=SupplierSessionResponse,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def approve_supplier_session(employee_id: str, part_number: str) -> SupplierSessionResponse:
+    try:
+        result = negotiation_service.approve_cost_inputs(employee_id, part_number, {"approved_values": {}})
+        return SupplierSessionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

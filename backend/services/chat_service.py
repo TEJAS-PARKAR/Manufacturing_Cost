@@ -21,8 +21,8 @@ class ChatCostService:
     def __init__(self) -> None:
         self.estimator = CostEstimator()
         self.model = None
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
         self._train_model()
 
     def _train_model(self) -> None:
@@ -67,11 +67,11 @@ class ChatCostService:
         return defaults.get(normalized, {"density": 7850.0, "rate_per_kg": 65.0})
 
     def _extract_with_llm(self, message: str) -> Dict[str, Any] | None:
-        if not self.openai_api_key:
+        if not self.groq_api_key:
             return None
         try:
             payload = {
-                "model": self.openai_model,
+                "model": self.groq_model,
                 "messages": [
                     {
                         "role": "system",
@@ -82,8 +82,8 @@ class ChatCostService:
                 "temperature": 0.1,
             }
             response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.openai_api_key}"},
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.groq_api_key}"},
                 json=payload,
                 timeout=20,
             )

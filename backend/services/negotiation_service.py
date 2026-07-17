@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timezone
 from io import BytesIO
+import json
+import os
 import re
 from typing import Any
 
 import pandas as pd
+import requests
+from openpyxl import load_workbook
+
+try:
+    from pymongo import MongoClient
+except Exception:  # pragma: no cover - optional dependency guard
+    MongoClient = None
 
 
 class SupplierNegotiationService:
@@ -27,6 +35,19 @@ class SupplierNegotiationService:
 
     def __init__(self) -> None:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
+        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+        self.mongo_uri = os.getenv("MONGODB_URI")
+        self.mongo_db_name = os.getenv("MONGODB_DB_NAME", "manufacturing_cost")
+        self.mongo_collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
+        self.mongo_collection = None
+        if self.mongo_uri and MongoClient is not None:
+            try:
+                client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=5000)
+                self.mongo_collection = client[self.mongo_db_name][self.mongo_collection_name]
+                self.mongo_collection.find_one({}, projection={"_id": 1})
+            except Exception:
+                self.mongo_collection = None
 
     def start_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
         key = self._session_key(employee_id, part_number)
@@ -38,6 +59,8 @@ class SupplierNegotiationService:
                 "session_key": key,
                 "status": "active",
                 "extracted_data": {},
+                "raw_table": {},
+                "excel_interpretation": {},
                 "history": [],
                 "summary": "New negotiation session started.",
                 "missing_fields": self.REQUIRED_FIELDS,
@@ -47,6 +70,7 @@ class SupplierNegotiationService:
                 },
             }
             self.sessions[key] = session
+            self._persist_session(session)
         return self._serialize_session(session)
 
     def get_session_context(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -70,24 +94,28 @@ class SupplierNegotiationService:
         session["missing_fields"] = self._identify_missing_fields(session["extracted_data"])
         session["summary"] = self._build_summary(session)
         session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
+        self._persist_session(session)
         return self._serialize_session(session)
 
     def ingest_excel(self, employee_id: str, part_number: str, file_bytes: bytes, filename: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
-        buffer = BytesIO(file_bytes)
-        dataframe = pd.read_excel(buffer)
-        parsed = self._extract_from_dataframe(dataframe)
-        session["extracted_data"].update(parsed)
+        raw_table = self._extract_raw_table(file_bytes)
+        interpretation = self._interpret_excel_table(raw_table)
+
+        session["raw_table"] = raw_table
+        session["excel_interpretation"] = interpretation
+        session["extracted_data"].update(interpretation)
         session["history"].append(
             {
                 "role": "system",
-                "message": f"Excel sheet '{filename}' processed for cost extraction.",
+                "message": f"Excel sheet '{filename}' processed through raw-table extraction and interpretation.",
                 "timestamp": self._now_iso(),
             }
         )
         session["missing_fields"] = self._identify_missing_fields(session["extracted_data"])
         session["summary"] = self._build_summary(session)
         session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
+        self._persist_session(session)
         return self._serialize_session(session)
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -101,6 +129,7 @@ class SupplierNegotiationService:
             }
         )
         session["summary"] = self._build_summary(session)
+        self._persist_session(session)
         return self._serialize_session(session)
 
     def get_review_dashboard(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -124,14 +153,21 @@ class SupplierNegotiationService:
             }
         )
         session["summary"] = self._build_summary(session)
+        self._persist_session(session)
         return self._serialize_session(session)
 
     def _ensure_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
         key = self._session_key(employee_id, part_number)
         session = self.sessions.get(key)
-        if session is None:
-            return self.start_session(employee_id, part_number)
-        return session
+        if session is not None:
+            return session
+        if self.mongo_collection is not None:
+            doc = self.mongo_collection.find_one({"_id": self._storage_key(employee_id, part_number)})
+            if doc is not None:
+                session = self._hydrate_session(doc)
+                self.sessions[key] = session
+                return session
+        return self.start_session(employee_id, part_number)
 
     def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -140,11 +176,31 @@ class SupplierNegotiationService:
             "session_key": session["session_key"],
             "status": session["status"],
             "extracted_data": session["extracted_data"],
+            "raw_table": session.get("raw_table", {}),
+            "excel_interpretation": session.get("excel_interpretation", {}),
             "history": session["history"],
             "summary": session["summary"],
             "missing_fields": session["missing_fields"],
             "review": session["review"],
         }
+
+    def _storage_key(self, employee_id: str, part_number: str) -> str:
+        return f"{employee_id.strip()}::{part_number.strip()}"
+
+    def _persist_session(self, session: dict[str, Any]) -> None:
+        if self.mongo_collection is None:
+            return
+        doc = self._serialize_session(session)
+        doc["_id"] = self._storage_key(session["employee_id"], session["part_number"])
+        self.mongo_collection.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+
+    def _hydrate_session(self, document: dict[str, Any]) -> dict[str, Any]:
+        session = dict(document)
+        session.pop("_id", None)
+        session_key = session.get("session_key")
+        if isinstance(session_key, list):
+            session["session_key"] = tuple(session_key)
+        return session
 
     def _session_key(self, employee_id: str, part_number: str) -> tuple[str, str]:
         return (employee_id.strip(), part_number.strip())
@@ -255,55 +311,278 @@ class SupplierNegotiationService:
 
         return extracted
 
-    def _extract_from_dataframe(self, dataframe: pd.DataFrame) -> dict[str, Any]:
-        normalized_columns = {str(column).strip().lower().replace(" ", "_").replace("-", "_"): column for column in dataframe.columns}
+    def _extract_raw_table(self, file_bytes: bytes) -> dict[str, Any]:
+        buffer = BytesIO(file_bytes)
+        workbook = load_workbook(buffer, data_only=True)
+        worksheet = workbook.active
+        rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+        headers = [self._clean_cell(value) for value in rows[0]] if rows else []
+        data_rows = []
+        for row in rows[1:]:
+            data_rows.append([self._clean_cell(value) for value in row])
 
-        parsed: dict[str, Any] = {}
-        quantity_candidates = [
-            normalized_columns.get("quantity"),
-            normalized_columns.get("qty"),
-            normalized_columns.get("qty_pcs"),
-            normalized_columns.get("pieces"),
-        ]
-        for candidate in quantity_candidates:
-            if candidate and not dataframe[candidate].isna().all():
-                parsed["quantity"] = int(float(dataframe[candidate].dropna().iloc[0]))
-                break
+        dataframe = pd.DataFrame(data_rows, columns=headers) if headers else pd.DataFrame(data_rows)
+        return {
+            "sheet_name": worksheet.title,
+            "headers": headers,
+            "rows": data_rows,
+            "row_count": len(data_rows),
+            "column_count": len(headers),
+            "dataframe_preview": dataframe.to_dict(orient="records"),
+        }
 
-        dimension_columns = [
-            normalized_columns.get("length"),
-            normalized_columns.get("width"),
-            normalized_columns.get("height"),
-            normalized_columns.get("thickness"),
-        ]
-        values = []
-        for column in dimension_columns:
-            if column and not dataframe[column].isna().all():
-                values.append(float(dataframe[column].dropna().iloc[0]))
-        if values:
-            parsed["dimensions"] = values[:3]
+    def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
+        llm_result = self._interpret_with_llm(raw_table)
+        if llm_result:
+            return self._normalize_interpreted_values(llm_result)
 
-        material_column = normalized_columns.get("material") or normalized_columns.get("material_grade")
-        if material_column and not dataframe[material_column].isna().all():
-            parsed["material"] = str(dataframe[material_column].dropna().iloc[0]).upper()
+        headers = [self._normalize_header(header) for header in raw_table.get("headers", [])]
+        rows = raw_table.get("rows", [])
+        if not headers or not rows:
+            return {}
 
-        material_rate_column = normalized_columns.get("material_rate") or normalized_columns.get("rate_per_kg")
-        if material_rate_column and not dataframe[material_rate_column].isna().all():
-            parsed["material_rate"] = float(dataframe[material_rate_column].dropna().iloc[0])
+        first_row = rows[0]
+        lookup: dict[str, Any] = {}
+        for index, header in enumerate(headers):
+            lookup[self._normalize_header_key(header)] = first_row[index] if index < len(first_row) else None
 
-        coating_column = normalized_columns.get("coating") or normalized_columns.get("surface_coating")
-        if coating_column and not dataframe[coating_column].isna().all():
-            parsed["coating"] = str(dataframe[coating_column].dropna().iloc[0]).upper()
+        interpreted: dict[str, Any] = {}
+        quantity = self._extract_quantity_from_lookup(lookup)
+        if quantity is not None:
+            interpreted["quantity"] = quantity
 
-        process_column = normalized_columns.get("process_information") or normalized_columns.get("process")
-        if process_column and not dataframe[process_column].isna().all():
-            parsed["process_information"] = [str(value).upper() for value in dataframe[process_column].dropna().astype(str).tolist()]
+        dimensions = self._extract_dimensions_from_lookup(lookup)
+        if dimensions:
+            interpreted["dimensions"] = dimensions
 
-        weight_column = normalized_columns.get("weight") or normalized_columns.get("part_weight")
-        if weight_column and not dataframe[weight_column].isna().all():
-            parsed["weight"] = float(dataframe[weight_column].dropna().iloc[0])
+        material = self._extract_material_from_lookup(lookup)
+        if material:
+            interpreted["material"] = material
 
-        return parsed
+        material_rate = self._extract_numeric_from_lookup(lookup, ["material_rate", "rate_per_kg", "rate", "rate_kg"])
+        if material_rate is not None:
+            interpreted["material_rate"] = material_rate
+
+        coating = self._extract_coating_from_lookup(lookup)
+        if coating:
+            interpreted["coating"] = coating
+
+        process_information = self._extract_process_information_from_lookup(lookup)
+        if process_information:
+            interpreted["process_information"] = process_information
+
+        return interpreted
+
+    def _interpret_with_llm(self, raw_table: dict[str, Any]) -> dict[str, Any]:
+        if not self.groq_api_key:
+            return {}
+        try:
+            payload = {
+                "model": self.groq_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You extract manufacturing cost details from an Excel table. Return compact JSON with keys: quantity, dimensions, material, material_rate, coating, process_information.",
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "sheet_name": raw_table.get("sheet_name"),
+                                "headers": raw_table.get("headers"),
+                                "rows": raw_table.get("rows", [])[:5],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                "temperature": 0.1,
+            }
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.groq_api_key}"},
+                json=payload,
+                timeout=20,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+        return {}
+
+    def _normalize_interpreted_values(self, values: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
+        if values.get("quantity") is not None:
+            normalized["quantity"] = int(float(values["quantity"]))
+        if values.get("dimensions"):
+            if isinstance(values["dimensions"], list):
+                normalized["dimensions"] = [float(item) for item in values["dimensions"]]
+        material = self._normalize_material(values.get("material"))
+        if material:
+            normalized["material"] = material
+        if values.get("material_rate") is not None:
+            normalized["material_rate"] = float(values["material_rate"])
+        coating = self._normalize_coating(values.get("coating"))
+        if coating:
+            normalized["coating"] = coating
+        process_information = values.get("process_information")
+        if process_information:
+            if isinstance(process_information, str):
+                normalized["process_information"] = [self._normalize_process(process_information)]
+            elif isinstance(process_information, list):
+                normalized["process_information"] = [self._normalize_process(item) for item in process_information if self._normalize_process(item)]
+        return normalized
+
+    def _normalize_header(self, header: Any) -> str:
+        return str(header).strip() if header is not None else ""
+
+    def _normalize_header_key(self, header: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "_", header.strip().lower())
+        return normalized.strip("_")
+
+    def _clean_cell(self, value: Any) -> Any:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    def _extract_quantity_from_lookup(self, lookup: dict[str, Any]) -> int | None:
+        for key in ["quantity", "qty", "qty_pcs", "pieces", "piece_count"]:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                try:
+                    return int(float(str(value)))
+                except ValueError:
+                    pass
+        for value in lookup.values():
+            if isinstance(value, (int, float)):
+                return int(float(value))
+        return None
+
+    def _extract_dimensions_from_lookup(self, lookup: dict[str, Any]) -> list[float] | None:
+        dimension_values = []
+        for key in ["length", "width", "height", "thickness"]:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                try:
+                    dimension_values.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+        if dimension_values:
+            return dimension_values[:3]
+        return None
+
+    def _extract_numeric_from_lookup(self, lookup: dict[str, Any], keys: list[str]) -> float | None:
+        for key in keys:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def _extract_material_from_lookup(self, lookup: dict[str, Any]) -> str | None:
+        for key in ["material", "material_grade", "material_type"]:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                return self._normalize_material(value)
+        return None
+
+    def _extract_coating_from_lookup(self, lookup: dict[str, Any]) -> str | None:
+        for key in ["coating", "surface_coating", "surface_finish", "finish"]:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                return self._normalize_coating(value)
+        return None
+
+    def _extract_process_information_from_lookup(self, lookup: dict[str, Any]) -> list[str] | None:
+        for key in ["process_information", "process", "processes"]:
+            value = lookup.get(key)
+            if value is not None and str(value).strip() != "":
+                if isinstance(value, list):
+                    normalized = [self._normalize_process(item) for item in value if self._normalize_process(item)]
+                    if normalized:
+                        return normalized
+                normalized = self._normalize_process(value)
+                if normalized:
+                    return [normalized]
+        return None
+
+    def _normalize_material(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().upper()
+        mapping = {
+            "CRCA": "CRCA",
+            "MILD STEEL": "MILD STEEL",
+            "MILDSTEEL": "MILD STEEL",
+            "STAINLESS": "STAINLESS",
+            "ALUMINUM": "ALUMINUM",
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        if "CRCA" in normalized:
+            return "CRCA"
+        if "MILD STEEL" in normalized or "MILDSTEEL" in normalized:
+            return "MILD STEEL"
+        if "STAINLESS" in normalized:
+            return "STAINLESS"
+        if "ALUMINUM" in normalized:
+            return "ALUMINUM"
+        return normalized or None
+
+    def _normalize_coating(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().upper()
+        mapping = {
+            "POWDER COATING": "POWDER COATING",
+            "POWDER": "POWDER COATING",
+            "PAINTING": "PAINTING",
+            "ZINC": "ZINC COATING",
+            "ZINC COATING": "ZINC COATING",
+            "CHROME": "CHROME COATING",
+            "CHROME COATING": "CHROME COATING",
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        if "POWDER" in normalized:
+            return "POWDER COATING"
+        if "PAINT" in normalized:
+            return "PAINTING"
+        if "ZINC" in normalized:
+            return "ZINC COATING"
+        if "CHROME" in normalized:
+            return "CHROME COATING"
+        return normalized or None
+
+    def _normalize_process(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().upper()
+        if not normalized:
+            return None
+        replacements = {
+            "LASER CUT": "LASER CUTTING",
+            "LASER CUTTING": "LASER CUTTING",
+            "CUTTING": "LASER CUTTING",
+            "BEND": "BENDING",
+            "BENDING": "BENDING",
+            "WELD": "WELDING",
+            "WELDING": "WELDING",
+            "DRILL": "DRILLING",
+            "DRILLING": "DRILLING",
+            "HOLE": "DRILLING",
+        }
+        for source, target in replacements.items():
+            if source in normalized:
+                return target
+        return normalized
 
     def _benchmark_comparison(self, extracted_data: dict[str, Any]) -> dict[str, Any]:
         material = (extracted_data.get("material") or "CRCA").upper()
