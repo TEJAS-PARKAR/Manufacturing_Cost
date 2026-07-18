@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from backend.models import (
@@ -149,9 +150,10 @@ def get_supplier_review_dashboard(employee_id: str, part_number: str) -> dict:
     response_model=SupplierSessionResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def approve_supplier_session(employee_id: str, part_number: str) -> SupplierSessionResponse:
+def approve_supplier_session(employee_id: str, part_number: str, payload: dict | None = None) -> SupplierSessionResponse:
     try:
-        result = negotiation_service.approve_cost_inputs(employee_id, part_number, {"approved_values": {}})
+        approval_payload = payload or {"approved_values": {}}
+        result = negotiation_service.approve_cost_inputs(employee_id, part_number, approval_payload)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

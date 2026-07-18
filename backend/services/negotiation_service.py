@@ -11,10 +11,7 @@ import pandas as pd
 import requests
 from openpyxl import load_workbook
 
-try:
-    from pymongo import MongoClient
-except Exception:  # pragma: no cover - optional dependency guard
-    MongoClient = None
+from backend.services.mongo_service import MongoConnection
 
 
 class SupplierNegotiationService:
@@ -37,17 +34,8 @@ class SupplierNegotiationService:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
-        self.mongo_uri = os.getenv("MONGODB_URI")
-        self.mongo_db_name = os.getenv("MONGODB_DB_NAME", "manufacturing_cost")
-        self.mongo_collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
-        self.mongo_collection = None
-        if self.mongo_uri and MongoClient is not None:
-            try:
-                client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=5000)
-                self.mongo_collection = client[self.mongo_db_name][self.mongo_collection_name]
-                self.mongo_collection.find_one({}, projection={"_id": 1})
-            except Exception:
-                self.mongo_collection = None
+        collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
+        self.mongo_collection = MongoConnection.get_collection(collection_name)
 
     def start_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
         key = self._session_key(employee_id, part_number)

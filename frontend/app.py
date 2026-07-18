@@ -1,6 +1,13 @@
 import os
+from pathlib import Path
+
+# pyrefly: ignore [missing-import]
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 import requests
+# pyrefly: ignore [missing-import]
 import streamlit as st
 
 
@@ -28,10 +35,15 @@ def main() -> None:
         st.session_state.portal = "Supplier"
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "authenticated_portal" not in st.session_state:
+        st.session_state.authenticated_portal = None
 
     with st.sidebar:
         st.header("Portal Access")
         portal = st.radio("Choose portal", ["Supplier", "Tata Motors"], horizontal=False, key="portal_selector")
+        if portal != st.session_state.portal:
+            st.session_state.authenticated = False
+            st.session_state.authenticated_portal = None
         st.session_state.portal = portal
         st.write("Use separate credentials so suppliers and Tata reviewers can access their own workspace.")
 
@@ -52,6 +64,7 @@ def main() -> None:
             }[st.session_state.portal]
             if username == expected["username"] and password == expected["password"]:
                 st.session_state.authenticated = True
+                st.session_state.authenticated_portal = st.session_state.portal
                 st.session_state.username = username
                 st.success(f"Logged in to {st.session_state.portal} workspace.")
             else:
@@ -83,7 +96,7 @@ def main() -> None:
         uploaded_file = st.file_uploader("Upload costing Excel sheet", type=["xlsx", "xls"])
         if uploaded_file is not None and st.button("Process Excel Sheet"):
             try:
-                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type or "application/vnd.openxmlformats-officedocument/spreadsheetml.sheet")}
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
                 response = requests.post(
                     f"{api_base_url}/supplier/session/upload-excel",
                     params={"employee_id": employee_id, "part_number": part_number},

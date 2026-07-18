@@ -5,29 +5,17 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
+# pyrefly: ignore [missing-import]
+from dotenv import load_dotenv
+
 try:
+    # pyrefly: ignore [missing-import]
     from pymongo import MongoClient
 except Exception:  # pragma: no cover - optional dependency guard
     MongoClient = None
 
 
-def load_environment() -> None:
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return
-
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
-
-
-load_environment()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 class MongoConnection:

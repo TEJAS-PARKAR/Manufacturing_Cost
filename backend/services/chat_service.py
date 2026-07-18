@@ -188,13 +188,19 @@ class ChatCostService:
 
     def predict_cost(self, extracted_data: Dict[str, Any]) -> Dict[str, Any]:
         process_payloads: List[Dict[str, Any]] = []
+        seen_names: set[str] = set()
+        # Prefer process_details (full dicts with parameters like bends, holes, etc.)
         for process in extracted_data.get("process_details", []):
-            if isinstance(process, dict):
+            if isinstance(process, dict) and process.get("name"):
+                seen_names.add(process["name"])
                 process_payloads.append(process)
+        # Fall back to processes list only for names not already seen
         for process in extracted_data.get("processes", []):
-            if isinstance(process, dict):
+            if isinstance(process, dict) and process.get("name") not in seen_names:
+                seen_names.add(process["name"])
                 process_payloads.append(process)
-            elif isinstance(process, str):
+            elif isinstance(process, str) and process not in seen_names:
+                seen_names.add(process)
                 process_payloads.append({"name": process, "quantity": 1})
 
         request = CostEstimateRequest(

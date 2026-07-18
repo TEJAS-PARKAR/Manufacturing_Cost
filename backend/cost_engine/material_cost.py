@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from math import pi
-
 
 class MaterialCostCalculator:
     def calculate(self, material: dict, dimensions: dict, quantity: int) -> dict:

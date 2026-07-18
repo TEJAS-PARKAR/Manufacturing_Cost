@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 from typing import Any, Optional
 
 from backend.services.mongo_service import MongoConnection
@@ -30,13 +31,16 @@ class UserService:
         if existing is not None:
             raise ValueError("username already exists")
 
+        salt = secrets.token_hex(16)
+        password_hash = self._hash_password(password, salt)
         user_doc = {
             "username": username,
-            "password_hash": self._hash_password(password),
+            "password_salt": salt,
+            "password_hash": password_hash,
             "created_at": self._now_iso(),
         }
         self.collection.insert_one(user_doc)
-        return {"username": username, "password_hash": user_doc["password_hash"]}
+        return {"username": username, "password_hash": password_hash}
 
     def authenticate_user(self, username: str, password: str) -> bool:
         if self.collection is None:
@@ -44,10 +48,13 @@ class UserService:
         user_doc = self.collection.find_one({"username": username})
         if user_doc is None:
             return False
-        return self._hash_password(password) == user_doc.get("password_hash")
+        salt = user_doc.get("password_salt", "")
+        return self._hash_password(password, salt) == user_doc.get("password_hash")
 
-    def _hash_password(self, password: str) -> str:
-        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    def _hash_password(self, password: str, salt: str) -> str:
+        return hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations=100_000
+        ).hex()
 
     def _now_iso(self) -> str:
         from datetime import datetime, timezone

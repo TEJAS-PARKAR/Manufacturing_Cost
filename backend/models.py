@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -99,6 +100,8 @@ class SupplierSessionResponse(BaseModel):
     session_key: tuple[str, str]
     status: str
     extracted_data: Dict[str, Any]
+    raw_table: Dict[str, Any] = Field(default_factory=dict)
+    excel_interpretation: Dict[str, Any] = Field(default_factory=dict)
     history: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str
     missing_fields: List[str] = Field(default_factory=list)
