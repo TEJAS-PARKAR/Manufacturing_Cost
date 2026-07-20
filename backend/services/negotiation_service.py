@@ -464,6 +464,23 @@ class SupplierNegotiationService:
                 normalized["process_information"] = [self._normalize_process(process_information)]
             elif isinstance(process_information, list):
                 normalized["process_information"] = [self._normalize_process(item) for item in process_information if self._normalize_process(item)]
+        
+            # Additional fields extracted by Groq
+            for field in [
+                "material_grade",
+                "thickness",
+                "width",
+                "length",
+                "finished_weight",
+                "scrap_weight",
+                "coating_cost",
+                "raw_material_cost",
+                "conversion_cost",
+                "total_cost",
+            ]:
+                if values.get(field) is not None:
+                    normalized[field] = values[field]
+
         return normalized
 
     def _normalize_header(self, header: Any) -> str:
