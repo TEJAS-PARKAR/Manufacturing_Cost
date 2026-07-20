@@ -49,23 +49,43 @@ class MongoConnection:
             )
         return None
 
+    
     @classmethod
     def get_client(cls):
         if cls._client is not None:
             return cls._client
+
+        print("MongoClient imported:", MongoClient is not None)
+
         if MongoClient is None:
+            print("pymongo not installed")
             return None
 
         uri = cls._build_uri()
+        print("Generated URI:", uri)
+
         if not uri:
+            print("No Mongo URI generated")
             return None
 
         try:
-            cls._client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+            cls._client = MongoClient(
+                uri,
+                serverSelectionTimeoutMS=5000
+            )
+
             cls._client.admin.command("ping")
-        except Exception:
+
+            print("✅ MongoDB Connected Successfully")
+
+            return cls._client
+
+        except Exception as e:
+            print("❌ MongoDB Connection Failed")
+            print("ERROR:", str(e))
             cls._client = None
-        return cls._client
+            return None
+
 
     @classmethod
     def get_database(cls, database_name: Optional[str] = None):

@@ -9,20 +9,108 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 import requests
 # pyrefly: ignore [missing-import]
 import streamlit as st
+import pandas as pd
+import plotly.express as px
+
 
 
 def _api_base_url() -> str:
     return os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 
-def _render_session_status(session: dict) -> None:
-    st.subheader("Negotiation Session")
-    st.json(session)
-    if session.get("missing_fields"):
-        st.warning(f"Missing required details: {', '.join(session['missing_fields'])}")
-    else:
-        st.success("Mandatory fields are present. The session can now move to review.")
 
+def _render_session_status(session: dict) -> None:
+    extracted = session.get("extracted_data", {})
+    st.subheader("Session Overview")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(
+        "Part Number",
+        session.get("part_number", "-")
+    )
+    col2.metric(
+        "Material",
+        extracted.get("material", "-")
+    )
+    col3.metric(
+        "Material Rate",
+        extracted.get("material_rate", "-")
+    )
+    col4.metric(
+        "Total Cost",
+        f"₹ {round(extracted.get('total_cost', 0), 2)}"
+    )
+    if session.get("missing_fields"):
+        st.warning(
+            f"Missing Fields: {', '.join(session['missing_fields'])}"
+        )
+    else:
+        st.success("All mandatory fields available.")
+
+def render_cost_summary(session):
+    extracted = session.get("extracted_data", {})
+    st.subheader("Costing Summary")
+    data = {
+        "Parameter": [
+            "Material",
+            "Material Rate",
+            "Thickness",
+            "Width",
+            "Length",
+            "Finished Weight",
+            "Scrap Weight",
+            "RM Cost",
+            "Conversion Cost",
+            "Coating Cost",
+            "Total Cost",
+        ],
+        "Value": [
+            extracted.get("material"),
+            extracted.get("material_rate"),
+            extracted.get("thickness"),
+            extracted.get("width"),
+            extracted.get("length"),
+            extracted.get("finished_weight"),
+            extracted.get("scrap_weight"),
+            extracted.get("raw_material_cost"),
+            extracted.get("conversion_cost"),
+            extracted.get("coating_cost"),
+            extracted.get("total_cost"),
+        ],
+    }
+    st.dataframe(
+        pd.DataFrame(data),
+        use_container_width=True
+    )
+
+def render_cost_chart(session):
+    extracted = session.get("extracted_data", {})
+    rm = extracted.get("raw_material_cost", 0)
+    conversion = extracted.get("conversion_cost", 0)
+    coating = extracted.get("coating_cost", 0)
+    df = pd.DataFrame(
+        {
+            "Cost Type": [
+                "Raw Material",
+                "Conversion",
+                "Coating",
+            ],
+            "Cost": [
+                rm,
+                conversion,
+                coating,
+            ],
+        }
+    )
+    fig = px.pie(
+        df,
+        names="Cost Type",
+        values="Cost",
+        title="Cost Breakdown"
+    )
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
 def main() -> None:
     st.set_page_config(page_title="Supplier Negotiation Copilot", page_icon="🤖", layout="wide")
@@ -109,8 +197,20 @@ def main() -> None:
             except requests.exceptions.RequestException as exc:
                 st.error(f"Excel upload failed: {exc}")
 
-        st.subheader("Continue the negotiation")
-        supplier_message = st.text_area("Supplier message", height=120)
+        
+        st.subheader("Negotiation Chat")
+        for item in st.session_state.session.get("history", []):
+            role = item.get("role")
+            if role == "supplier":
+                with st.chat_message("user"):
+                    st.write(item["message"])
+            else:
+                with st.chat_message("assistant"):
+                    st.write(item["message"])
+        supplier_message = st.chat_input(
+            "Enter supplier demand..."
+        )
+        
         if st.button("Send Message") and supplier_message:
             try:
                 response = requests.post(
@@ -170,7 +270,46 @@ def main() -> None:
                 st.error(f"Review lookup failed: {exc}")
 
         if "review_dashboard" in st.session_state:
-            st.json(st.session_state.review_dashboard)
+            dashboard = st.session_state.review_dashboard
+            session = dashboard.get("session", {})
+            _render_session_status(session)
+            benchmark = dashboard.get(
+                "benchmark_comparison",
+                {}
+            )
+            st.subheader("Benchmark Comparison")
+            col1, col2, col3 = st.columns(3)
+            col1.metric(
+                "Supplier Rate",
+                benchmark.get(
+                    "supplier_material_rate",
+                    0
+                )
+            )
+            col2.metric(
+                "Benchmark Rate",
+                benchmark.get(
+                    "internal_benchmark_rate",
+                    0
+                )
+            )
+            col3.metric(
+                "Variance",
+                benchmark.get(
+                    "variance",
+                    0
+                )
+            )
+            recommendation = benchmark.get(
+                "recommendation",
+                "review"
+            )
+            if recommendation == "accept":
+                st.success("ACCEPT")
+            elif recommendation == "review":
+                st.warning("REVIEW")
+            else:
+                st.error("NEGOTIATE FURTHER")
 
         if st.button("Approve Current Inputs"):
             try:

@@ -33,7 +33,7 @@ class SupplierNegotiationService:
     def __init__(self) -> None:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "openai/gpt-oss-120b")
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
         self.mongo_collection = MongoConnection.get_collection(collection_name)
 
@@ -373,11 +373,8 @@ class SupplierNegotiationService:
                                     "role": "system",
                                     "content": """
                                     You are an expert in Tata Motors supplier costing sheets.
-
                                     Analyze the entire costing sheet.
-
                                     Extract:
-
                                     quantity
                                     dimensions
                                     material
@@ -394,7 +391,9 @@ class SupplierNegotiationService:
                                     process_information
                                     conversion_cost
                                     total_cost
-
+                                    Extract all manufacturing operations under
+                                    "Conversion Cost".
+                                    Return them as process_information.
                                     Return ONLY valid JSON.
                                     Use null where unavailable.
                                     """
@@ -412,15 +411,29 @@ class SupplierNegotiationService:
                     },
                 ],
                 "temperature": 0.1,
+                "response_format": {
+                    "type": "json_object"
+                },
+
             }
+            print("ROWS SENT TO GROQ:", len(raw_table.get("rows", [])))
+            print("COLUMNS:", len(raw_table.get("headers", [])))
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.groq_api_key}"},
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
+                },
                 json=payload,
                 timeout=20,
             )
+            if response.status_code != 200:
+                print("GROQ ERROR RESPONSE:")
+                print(response.text)
             response.raise_for_status()
-            
+            print("STATUS CODE:", response.status_code)
+            print("RAW RESPONSE:")
+            print(response.text[:5000])
             content = response.json()["choices"][0]["message"]["content"]
             
             print("========== GROQ RESPONSE ==========")
@@ -450,11 +463,26 @@ class SupplierNegotiationService:
         if values.get("dimensions"):
             if isinstance(values["dimensions"], list):
                 normalized["dimensions"] = [float(item) for item in values["dimensions"]]
+        
+        if (
+            values.get("thickness") is not None
+            and values.get("width") is not None
+            and values.get("length") is not None
+        ):
+            normalized["dimensions"] = [
+                float(values["thickness"]),
+                float(values["width"]),
+                float(values["length"]),
+            ]
+
         material = self._normalize_material(values.get("material"))
         if material:
             normalized["material"] = material
         if values.get("material_rate") is not None:
-            normalized["material_rate"] = float(values["material_rate"])
+            try:
+                normalized["material_rate"] = float(values["material_rate"])
+            except Exception:
+                pass
         coating = self._normalize_coating(values.get("coating"))
         if coating:
             normalized["coating"] = coating
@@ -465,21 +493,21 @@ class SupplierNegotiationService:
             elif isinstance(process_information, list):
                 normalized["process_information"] = [self._normalize_process(item) for item in process_information if self._normalize_process(item)]
         
-            # Additional fields extracted by Groq
-            for field in [
-                "material_grade",
-                "thickness",
-                "width",
-                "length",
-                "finished_weight",
-                "scrap_weight",
-                "coating_cost",
-                "raw_material_cost",
-                "conversion_cost",
-                "total_cost",
-            ]:
-                if values.get(field) is not None:
-                    normalized[field] = values[field]
+        # Additional fields extracted by Groq
+        for field in [
+            "material_grade",
+            "thickness",
+            "width",
+            "length",
+            "finished_weight",
+            "scrap_weight",
+            "coating_cost",
+            "raw_material_cost",
+            "conversion_cost",
+            "total_cost",
+        ]:
+            if values.get(field) is not None:
+                normalized[field] = values[field]
 
         return normalized
 
