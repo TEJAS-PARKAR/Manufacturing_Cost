@@ -368,17 +368,44 @@ class SupplierNegotiationService:
             payload = {
                 "model": self.groq_model,
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": "You extract manufacturing cost details from an Excel table. Return compact JSON with keys: quantity, dimensions, material, material_rate, coating, process_information.",
-                    },
+                    
+                                {
+                                    "role": "system",
+                                    "content": """
+                                    You are an expert in Tata Motors supplier costing sheets.
+
+                                    Analyze the entire costing sheet.
+
+                                    Extract:
+
+                                    quantity
+                                    dimensions
+                                    material
+                                    material_grade
+                                    material_rate
+                                    thickness
+                                    width
+                                    length
+                                    finished_weight
+                                    scrap_weight
+                                    coating
+                                    coating_cost
+                                    raw_material_cost
+                                    process_information
+                                    conversion_cost
+                                    total_cost
+
+                                    Return ONLY valid JSON.
+                                    Use null where unavailable.
+                                    """
+                                },
                     {
                         "role": "user",
                         "content": json.dumps(
                             {
                                 "sheet_name": raw_table.get("sheet_name"),
                                 "headers": raw_table.get("headers"),
-                                "rows": raw_table.get("rows", [])[:5],
+                                "rows": raw_table.get("rows", []),
                             },
                             ensure_ascii=False,
                         ),
@@ -393,11 +420,26 @@ class SupplierNegotiationService:
                 timeout=20,
             )
             response.raise_for_status()
+            
             content = response.json()["choices"][0]["message"]["content"]
+            
+            print("========== GROQ RESPONSE ==========")
+            print(content)
+            print("===================================")
+
+            content = content.strip()
+
+            if content.startswith("```"):
+                content = re.sub(r"^```json", "", content)
+                content = content.replace("```", "")
+                content = content.strip()
+
             parsed = json.loads(content)
             if isinstance(parsed, dict):
                 return parsed
-        except Exception:
+        except Exception as e:
+            print("========== GROQ ERROR ==========")
+            print(str(e))
             return {}
         return {}
 
