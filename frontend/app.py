@@ -82,6 +82,18 @@ def render_cost_summary(session):
         use_container_width=True
     )
 
+def get_session_context(
+    self,
+    employee_id,
+    part_number
+):
+    session = self._ensure_session(
+        employee_id,
+        part_number
+    )
+
+    return self._serialize_session(session)
+
 def render_cost_chart(session):
     extracted = session.get("extracted_data", {})
     rm = extracted.get("raw_material_cost", 0)

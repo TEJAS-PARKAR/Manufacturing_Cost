@@ -37,36 +37,92 @@ class SupplierNegotiationService:
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
         self.mongo_collection = MongoConnection.get_collection(collection_name)
 
-    def start_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
-        key = self._session_key(employee_id, part_number)
+    
+    def start_session(
+        self,
+        employee_id: str,
+        part_number: str
+    ) -> dict[str, Any]:
+
+        key = self._session_key(
+            employee_id,
+            part_number
+        )
+
+        # Check memory first
         session = self.sessions.get(key)
-        if session is None:
-            session = {
-                "employee_id": employee_id,
-                "part_number": part_number,
-                "session_key": key,
-                "status": "active",
-                "extracted_data": {},
-                "raw_table": {},
-                "excel_interpretation": {},
-                "history": [],
-                "summary": "New negotiation session started.",
-                "missing_fields": self.REQUIRED_FIELDS,
-                "review": {
-                    "recommendation": "review",
-                    "benchmark_reference": self._default_benchmark(employee_id, part_number),
-                },
-            }
-            self.sessions[key] = session
-            self._persist_session(session)
+
+        if session is not None:
+            return self._serialize_session(session)
+
+        # Check MongoDB before creating
+        if self.mongo_collection is not None:
+
+            doc = self.mongo_collection.find_one(
+                {
+                    "_id": self._storage_key(
+                        employee_id,
+                        part_number
+                    )
+                }
+            )
+
+            if doc is not None:
+                session = self._hydrate_session(doc)
+
+                self.sessions[key] = session
+
+                print("✅ Existing session loaded from MongoDB")
+
+                return self._serialize_session(session)
+
+        # Create new session only if nothing found
+        session = {
+            "employee_id": employee_id,
+            "part_number": part_number,
+            "session_key": key,
+            "status": "active",
+            "extracted_data": {},
+            "raw_table": {},
+            "excel_interpretation": {},
+            "history": [],
+            "summary": "New negotiation session started.",
+            "missing_fields": self.REQUIRED_FIELDS,
+            "review": {
+                "recommendation": "review",
+                "benchmark_reference": self._default_benchmark(
+                    employee_id,
+                    part_number
+                ),
+            },
+        }
+
+        self.sessions[key] = session
+
+        self._persist_session(session)
+
+        print("✅ New session created")
+        
+        print("PERSISTING SESSION")
+        print(session["employee_id"])
+        print(session["part_number"])
+        print(session["extracted_data"])
+        print("HISTORY:", len(session["history"]))
+
         return self._serialize_session(session)
 
-    def get_session_context(self, employee_id: str, part_number: str) -> dict[str, Any]:
-        key = self._session_key(employee_id, part_number)
-        session = self.sessions.get(key)
-        if session is None:
-            return self.start_session(employee_id, part_number)
+    
+    def get_session_context(
+        self,
+        employee_id: str,
+        part_number: str
+    ) -> dict[str, Any]:
+        session = self._ensure_session(
+            employee_id,
+            part_number
+        )
         return self._serialize_session(session)
+
 
     def record_supplier_message(self, employee_id: str, part_number: str, message: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
@@ -83,28 +139,39 @@ class SupplierNegotiationService:
         session["summary"] = self._build_summary(session)
         session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
         self._persist_session(session)
+        
+        print("PERSISTING SESSION")
+        print(session["employee_id"])
+        print(session["part_number"])
+        print(session["extracted_data"])
+        print("HISTORY:", len(session["history"]))
+
         return self._serialize_session(session)
 
-    def ingest_excel(self, employee_id: str, part_number: str, file_bytes: bytes, filename: str) -> dict[str, Any]:
-        session = self._ensure_session(employee_id, part_number)
+    
+    def ingest_excel(self, employee_id, part_number, file_bytes, filename):
+        session = self._ensure_session(
+            employee_id,
+            part_number
+        )
         raw_table = self._extract_raw_table(file_bytes)
-        interpretation = self._interpret_excel_table(raw_table)
-
+        print("\nRAW TABLE:")
+        print(raw_table)
+        interpretation = self._interpret_excel_table(
+            raw_table
+        )
+        print("\nINTERPRETATION:")
+        print(interpretation)
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
-        session["extracted_data"].update(interpretation)
-        session["history"].append(
-            {
-                "role": "system",
-                "message": f"Excel sheet '{filename}' processed through raw-table extraction and interpretation.",
-                "timestamp": self._now_iso(),
-            }
+        session["extracted_data"].update(
+            interpretation
         )
-        session["missing_fields"] = self._identify_missing_fields(session["extracted_data"])
-        session["summary"] = self._build_summary(session)
-        session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
+        print("\nEXTRACTED DATA AFTER UPDATE:")
+        print(session["extracted_data"])
         self._persist_session(session)
         return self._serialize_session(session)
+
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
@@ -118,6 +185,13 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
+        
+        print("PERSISTING SESSION")
+        print(session["employee_id"])
+        print(session["part_number"])
+        print(session["extracted_data"])
+        print("HISTORY:", len(session["history"]))
+
         return self._serialize_session(session)
 
     def get_review_dashboard(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -142,20 +216,68 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
+        
+        print("PERSISTING SESSION")
+        print(session["employee_id"])
+        print(session["part_number"])
+        print(session["extracted_data"])
+        print("HISTORY:", len(session["history"]))
+
         return self._serialize_session(session)
 
+    
     def _ensure_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
+
         key = self._session_key(employee_id, part_number)
+
+        print("=" * 50)
+        print("EMPLOYEE:", employee_id)
+        print("PART:", part_number)
+
+        storage_key = self._storage_key(
+            employee_id,
+            part_number
+        )
+
+        print("SEARCHING FOR _id:", storage_key)
+
         session = self.sessions.get(key)
+
         if session is not None:
+            print("FOUND IN MEMORY")
             return session
+
         if self.mongo_collection is not None:
-            doc = self.mongo_collection.find_one({"_id": self._storage_key(employee_id, part_number)})
-            if doc is not None:
+
+            print(
+                "DOCUMENT COUNT:",
+                self.mongo_collection.count_documents({})
+            )
+
+            doc = self.mongo_collection.find_one(
+                {"_id": storage_key}
+            )
+
+            print("DOCUMENT FOUND:", doc is not None)
+
+            if doc:
+                print("DOCUMENT ID:", doc.get("_id"))
+
                 session = self._hydrate_session(doc)
+
                 self.sessions[key] = session
+
+                print("LOADED FROM MONGO")
+
                 return session
-        return self.start_session(employee_id, part_number)
+
+        print("CREATING NEW SESSION")
+
+        return self.start_session(
+            employee_id,
+            part_number
+        )
+
 
     def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -164,7 +286,7 @@ class SupplierNegotiationService:
             "session_key": session["session_key"],
             "status": session["status"],
             "extracted_data": session["extracted_data"],
-            "raw_table": session.get("raw_table", {}),
+            # "raw_table": session.get("raw_table", {}),
             "excel_interpretation": session.get("excel_interpretation", {}),
             "history": session["history"],
             "summary": session["summary"],
@@ -175,12 +297,36 @@ class SupplierNegotiationService:
     def _storage_key(self, employee_id: str, part_number: str) -> str:
         return f"{employee_id.strip()}::{part_number.strip()}"
 
+    
     def _persist_session(self, session: dict[str, Any]) -> None:
+
         if self.mongo_collection is None:
+            print("NO MONGO COLLECTION")
             return
+
         doc = self._serialize_session(session)
-        doc["_id"] = self._storage_key(session["employee_id"], session["part_number"])
-        self.mongo_collection.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+
+        doc["_id"] = self._storage_key(
+            session["employee_id"],
+            session["part_number"]
+        )
+
+        print("\n========== WRITING ==========")
+        print("ID:", doc["_id"])
+        print("EXTRACTED DATA:", doc["extracted_data"])
+        print("HISTORY LENGTH:", len(doc["history"]))
+
+        result = self.mongo_collection.replace_one(
+            {"_id": doc["_id"]},
+            doc,
+            upsert=True
+        )
+
+        print("MATCHED:", result.matched_count)
+        print("MODIFIED:", result.modified_count)
+        print("UPSERTED:", result.upserted_id)
+        print("========== DONE ==========\n")
+
 
     def _hydrate_session(self, document: dict[str, Any]) -> dict[str, Any]:
         session = dict(document)
@@ -474,7 +620,6 @@ class SupplierNegotiationService:
                 float(values["width"]),
                 float(values["length"]),
             ]
-
         material = self._normalize_material(values.get("material"))
         if material:
             normalized["material"] = material
@@ -488,10 +633,24 @@ class SupplierNegotiationService:
             normalized["coating"] = coating
         process_information = values.get("process_information")
         if process_information:
-            if isinstance(process_information, str):
-                normalized["process_information"] = [self._normalize_process(process_information)]
-            elif isinstance(process_information, list):
-                normalized["process_information"] = [self._normalize_process(item) for item in process_information if self._normalize_process(item)]
+            processes = []
+            for item in process_information:
+                if isinstance(item, dict):
+                    processes.append(
+                        {
+                            "process": item.get("process"),
+                            "cost": item.get("cost", 0)
+                        }
+                    )
+                elif isinstance(item, str):
+                    processes.append(
+                        {
+                            "process": self._normalize_process(item),
+                            "cost": 0
+                        }
+                    )
+            normalized["process_information"] = processes
+
         
         # Additional fields extracted by Groq
         for field in [
