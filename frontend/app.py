@@ -84,17 +84,17 @@ def render_cost_summary(session):
         use_container_width=True
     )
 
-def get_session_context(
-    self,
-    employee_id,
-    part_number
-):
-    session = self._ensure_session(
-        employee_id,
-        part_number
-    )
+# def get_session_context(
+#     self,
+#     employee_id,
+#     part_number
+# ):
+#     session = self._ensure_session(
+#         employee_id,
+#         part_number
+#     )
 
-    return self._serialize_session(session)
+#     return self._serialize_session(session)
 
 def render_cost_chart(session):
     extracted = session.get("extracted_data", {})
@@ -283,9 +283,17 @@ def main() -> None:
             except requests.exceptions.RequestException as exc:
                 st.error(f"Review lookup failed: {exc}")
 
-        if "review_dashboard" in st.session_state:
+        
+        if (
+            "review_dashboard" in st.session_state
+            and st.session_state.review_dashboard
+        ):
+            st.write(type(st.session_state.review_dashboard))
+            st.json(st.session_state.review_dashboard)
             dashboard = st.session_state.review_dashboard
             session = dashboard.get("session", {})
+            # render_cost_summary(session)
+            # render_cost_chart(session)
             _render_session_status(session)
             benchmark = dashboard.get(
                 "benchmark_comparison",
@@ -391,7 +399,7 @@ def main() -> None:
                             )
                             
                             st.session_state.review_dashboard = response.json()
-                            st.rerun()
+                            # st.rerun()
 
                         except requests.exceptions.RequestException as exc:
                             st.error(
@@ -426,7 +434,7 @@ def main() -> None:
                             st.success(
                                 "Offer Rejected"
                             )
-                            st.rerun()
+                            # st.rerun()
                         except requests.exceptions.RequestException as exc:
                             st.error(
                                 f"Rejection failed: {exc}"
