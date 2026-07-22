@@ -267,30 +267,47 @@ def main() -> None:
                 st.json(dashboard)
             except requests.exceptions.RequestException as exc:
                 st.error(f"Review lookup failed: {exc}")
+    
     elif st.session_state.portal == "Tata Motors":
+
         st.subheader("Tata Motors Review Dashboard")
-        st.write("Review supplier sessions, benchmark comparisons, and approve the final inputs.")
+        st.write(
+            "Review supplier sessions, benchmark comparisons, "
+            "and approve the final inputs."
+        )
+
         if st.button("Load Review Dashboard"):
             try:
+
                 response = requests.get(
                     f"{api_base_url}/supplier/session/review",
-                    params={"employee_id": employee_id, "part_number": part_number},
+                    params={
+                        "employee_id": employee_id,
+                        "part_number": part_number,
+                    },
                     timeout=45,
                 )
+
                 response.raise_for_status()
+
                 st.session_state.review_dashboard = response.json()
+
                 st.success("Review dashboard loaded.")
+
             except requests.exceptions.RequestException as exc:
                 st.error(f"Review lookup failed: {exc}")
-
-        
+      
         if (
             "review_dashboard" in st.session_state
             and st.session_state.review_dashboard
         ):
-            st.write(type(st.session_state.review_dashboard))
-            st.json(st.session_state.review_dashboard)
+            
+            st.write("REVIEW DASHBOARD RAW:")
+            st.write(st.session_state.review_dashboard)
             dashboard = st.session_state.review_dashboard
+            if not isinstance(dashboard, dict):
+                st.error(f"Expected dict, got {type(dashboard)}")
+                st.stop()
             session = dashboard.get("session", {})
             # render_cost_summary(session)
             # render_cost_chart(session)
@@ -399,6 +416,8 @@ def main() -> None:
                             )
                             
                             st.session_state.review_dashboard = response.json()
+                            print("TYPE:", type(st.session_state.review_dashboard))
+                            print("VALUE:", st.session_state.review_dashboard)
                             # st.rerun()
 
                         except requests.exceptions.RequestException as exc:
