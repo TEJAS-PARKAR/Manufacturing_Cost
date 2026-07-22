@@ -38,6 +38,9 @@ def _render_session_status(session: dict) -> None:
         "Total Cost",
         f"₹ {round(extracted.get('total_cost', 0), 2)}"
     )
+    # st.write("DEBUG MISSING FIELDS:")
+    # st.write(session.get("missing_fields"))
+
     if session.get("missing_fields"):
         st.warning(
             f"Missing Fields: {', '.join(session['missing_fields'])}"
@@ -321,18 +324,114 @@ def main() -> None:
                 st.warning("REVIEW")
             else:
                 st.error("NEGOTIATE FURTHER")
+            
+            negotiation = session.get(
+                "negotiation",
+                {}
+            )
 
-        if st.button("Approve Current Inputs"):
-            try:
-                response = requests.post(
-                    f"{api_base_url}/supplier/session/approve",
-                    params={"employee_id": employee_id, "part_number": part_number},
-                    timeout=45,
+            st.subheader(
+                "Negotiation Analysis"
+            )
+
+            c1,c2,c3 = st.columns(3)
+
+            c1.metric(
+                "Supplier Quote",
+                negotiation.get(
+                    "supplier_quote",
+                    0
                 )
-                response.raise_for_status()
-                st.success("Approved cost inputs updated for the session.")
-            except requests.exceptions.RequestException as exc:
-                st.error(f"Approval failed: {exc}")
+            )
+
+            c2.metric(
+                "Expected Cost",
+                negotiation.get(
+                    "predicted_cost",
+                    0
+                )
+            )
+
+            c3.metric(
+                "Variance %",
+                negotiation.get(
+                    "variance",
+                    0
+                )
+            )
+
+            st.info(
+                f"AI Recommendation: "
+                f"{negotiation.get('ai_recommendation')}"
+            )
+
+            st.success(
+                f"Suggested Counter Offer: ₹"
+                f"{negotiation.get('counter_offer')}"
+            )
+            
+            if session.get("status") == "submitted_for_review":
+                st.subheader("Buyer Actions")
+                col1, col2 = st.columns(2)
+                # APPROVE
+                with col1:
+                    if st.button("✅ Approve"):
+                        try:
+                            response = requests.post(
+                                f"{api_base_url}/supplier/session/approve",
+                                params={
+                                    "employee_id": employee_id,
+                                    "part_number": part_number
+                                },
+                                timeout=45,
+                            )
+                            response.raise_for_status()
+                            st.success(
+                                "Offer Approved"
+                            )
+                            
+                            st.session_state.review_dashboard = response.json()
+                            st.rerun()
+
+                        except requests.exceptions.RequestException as exc:
+                            st.error(
+                                f"Approval failed: {exc}"
+                            )
+                # REJECT
+                with col2:
+                    reject_reason = st.selectbox(
+                        "Rejection Reason",
+                        [
+                            "Cost Above Benchmark",
+                            "Material Rate Too High",
+                            "Conversion Cost Too High",
+                            "Commercial Terms Not Acceptable",
+                            "Incomplete Cost Sheet",
+                            "Other"
+                        ]
+                    )
+                    if st.button("❌ Reject"):
+                        try:
+                            response = requests.post(
+                                f"{api_base_url}/supplier/session/reject",
+                                params={
+                                    "employee_id": employee_id,
+                                    "part_number": part_number,
+                                    "reason": reject_reason
+                                },
+                                timeout=45,
+                            )
+                            response.raise_for_status()
+                            st.session_state.review_dashboard = response.json()
+                            st.success(
+                                "Offer Rejected"
+                            )
+                            st.rerun()
+                        except requests.exceptions.RequestException as exc:
+                            st.error(
+                                f"Rejection failed: {exc}"
+                            )
+
 
 
 if __name__ == "__main__":

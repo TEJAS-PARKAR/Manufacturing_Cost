@@ -548,6 +548,35 @@ class SupplierNegotiationService:
             "dataframe_preview": dataframe.to_dict(orient="records"),
         }
 
+
+    def _extract_dimensions_from_raw_table(self, rows):
+        for row in rows:
+            text = " ".join(
+                str(x)
+                for x in row
+                if x is not None
+            ).upper()
+            if (
+                "TH" in text
+                and "WD" in text
+                and "LG" in text
+            ):
+                nums = []
+                for item in row:
+                    try:
+                        nums.append(float(item))
+                    except Exception:
+                        pass
+                if len(nums) >= 3:
+                    return {
+                        "thickness": nums[0],
+                        "width": nums[1],
+                        "length": nums[2],
+                        "dimensions": nums[:3]
+                    }
+        return {}
+
+
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         llm_result = self._interpret_with_llm(raw_table)
         dimensions = self._extract_dimensions_from_raw_table(
@@ -947,3 +976,38 @@ class SupplierNegotiationService:
             "variance": variance,
             "recommendation": self._recommendation(extracted_data),
         }
+
+        
+    def reject_offer(
+        self,
+        employee_id: str,
+        part_number: str,
+        reason: str = "Cost exceeds expected benchmark"
+    ):
+        session = self._ensure_session(
+            employee_id,
+            part_number
+        )
+        session["status"] = "rejected"
+        session["negotiation"]["status"] = "rejected"
+        session["history"].append(
+            {
+                "role": "tata",
+                "message": f"Offer rejected. Reason: {reason}",
+                "timestamp": self._now_iso()
+            }
+        )
+        session["negotiation"]["rounds"].append(
+            {
+                "action": "reject",
+                "reason": reason,
+                "timestamp": self._now_iso()
+            }
+        )
+        session["summary"] = (
+            f"Quotation rejected by Tata Motors. "
+            f"Reason: {reason}"
+        )
+        self._persist_session(session)
+        return self._serialize_session(session)
+

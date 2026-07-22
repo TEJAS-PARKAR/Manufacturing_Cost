@@ -159,3 +159,16 @@ def approve_supplier_session(employee_id: str, part_number: str, payload: dict |
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.post("/supplier/session/reject")
+def reject_offer(
+    employee_id: str,
+    part_number: str,
+    reason: str = "Cost exceeds expected benchmark"
+):
+    return negotiation_service.reject_offer(
+        employee_id,
+        part_number,
+        reason
+    )
