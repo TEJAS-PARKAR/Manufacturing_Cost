@@ -13,7 +13,6 @@ import pandas as pd
 import plotly.express as px
 
 
-
 def _api_base_url() -> str:
     return os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 

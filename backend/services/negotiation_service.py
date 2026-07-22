@@ -77,6 +77,7 @@ class SupplierNegotiationService:
                 return self._serialize_session(session)
 
         # Create new session only if nothing found
+        
         session = {
             "employee_id": employee_id,
             "part_number": part_number,
@@ -95,7 +96,17 @@ class SupplierNegotiationService:
                     part_number
                 ),
             },
+            "negotiation": {
+                "supplier_quote": 0,
+                "predicted_cost": 0,
+                "variance": 0,
+                "ai_recommendation": "",
+                "counter_offer": 0,
+                "status": "pending",
+                "rounds": []
+            }
         }
+
 
         self.sessions[key] = session
 
@@ -167,11 +178,80 @@ class SupplierNegotiationService:
         session["extracted_data"].update(
             interpretation
         )
+        session["missing_fields"] = self._identify_missing_fields(
+            session["extracted_data"]
+        )
+        print("AFTER RECALCULATION:")
+        print(session["missing_fields"])
+        session["summary"] = self._build_summary(
+            session
+        )
+        session["negotiation"] = (
+            self.generate_negotiation_recommendation(
+                session["extracted_data"]
+            )
+        )
         print("\nEXTRACTED DATA AFTER UPDATE:")
         print(session["extracted_data"])
         self._persist_session(session)
         return self._serialize_session(session)
 
+    
+    def generate_negotiation_recommendation(
+        self,
+        extracted_data
+    ):
+
+        supplier_quote = float(
+            extracted_data.get("total_cost", 0)
+        )
+
+        expected_cost = round(
+            (
+                float(extracted_data.get("raw_material_cost", 0))
+                +
+                float(extracted_data.get("conversion_cost", 0))
+                +
+                float(extracted_data.get("coating_cost", 0))
+            ),
+            2
+        )
+
+        variance = 0
+
+        if expected_cost > 0:
+            variance = round(
+                (
+                    (supplier_quote - expected_cost)
+                    / expected_cost
+                ) * 100,
+                2
+            )
+
+        if variance <= 5:
+            recommendation = "approve"
+            counter_offer = supplier_quote
+
+        elif variance <= 15:
+            recommendation = "negotiate"
+            counter_offer = round(
+                expected_cost * 1.03,
+                2
+            )
+
+        else:
+            recommendation = "reject"
+            counter_offer = expected_cost
+
+        return {
+            "supplier_quote": supplier_quote,
+            "predicted_cost": expected_cost,
+            "variance": variance,
+            "ai_recommendation": recommendation,
+            "counter_offer": counter_offer,
+            "status": "active",
+            "rounds": []
+        }
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
@@ -286,12 +366,15 @@ class SupplierNegotiationService:
             "session_key": session["session_key"],
             "status": session["status"],
             "extracted_data": session["extracted_data"],
-            # "raw_table": session.get("raw_table", {}),
             "excel_interpretation": session.get("excel_interpretation", {}),
             "history": session["history"],
             "summary": session["summary"],
             "missing_fields": session["missing_fields"],
             "review": session["review"],
+            "negotiation": session.get(
+                "negotiation",
+                {}
+            )
         }
 
     def _storage_key(self, employee_id: str, part_number: str) -> str:
@@ -467,6 +550,10 @@ class SupplierNegotiationService:
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         llm_result = self._interpret_with_llm(raw_table)
+        dimensions = self._extract_dimensions_from_raw_table(
+            raw_table.get("rows", [])
+        )
+        llm_result.update(dimensions)
         if llm_result:
             return self._normalize_interpreted_values(llm_result)
 
@@ -522,13 +609,41 @@ class SupplierNegotiationService:
                                     Analyze the entire costing sheet.
                                     Extract:
                                     quantity
-                                    dimensions
                                     material
                                     material_grade
                                     material_rate
                                     thickness
                                     width
                                     length
+                                    IMPORTANT:
+                                    Thickness may appear as:
+                                    Th
+                                    Th.
+
+                                    Width may appear as:
+                                    Wd
+                                    Wd.
+
+                                    Length may appear as:
+                                    Lg
+                                    Lg.
+
+                                    Example:
+
+                                    Th. 2
+                                    Wd. 95
+                                    Lg. 214
+
+                                    Return:
+
+                                    {
+                                        "thickness": 2,
+                                        "width": 95,
+                                        "length": 214
+                                    }
+
+                                    Never omit these values if present.
+
                                     finished_weight
                                     scrap_weight
                                     coating
@@ -594,6 +709,8 @@ class SupplierNegotiationService:
                 content = content.strip()
 
             parsed = json.loads(content)
+            print("\nFULL GROQ OUTPUT")
+            print(json.dumps(parsed, indent=4))
             if isinstance(parsed, dict):
                 return parsed
         except Exception as e:
