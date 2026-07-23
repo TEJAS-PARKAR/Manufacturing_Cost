@@ -33,7 +33,7 @@ class SupplierNegotiationService:
     def __init__(self) -> None:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "openai/gpt-oss-120b")
+        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
         self.mongo_collection = MongoConnection.get_collection(collection_name)
 
