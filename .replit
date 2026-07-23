@@ -53,3 +53,8 @@ externalPort = 5000
 [[ports]]
 localPort = 8000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+GROQ_MODEL = "llama-3.1-8b-instant"
