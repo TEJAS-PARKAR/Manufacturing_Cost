@@ -715,7 +715,7 @@ class SupplierNegotiationService:
                     "Content-Type": "application/json"
                 },
                 json=payload,
-                timeout=20,
+                timeout=30
             )
             if response.status_code != 200:
                 print("GROQ ERROR RESPONSE:")
@@ -1011,3 +1011,137 @@ class SupplierNegotiationService:
         self._persist_session(session)
         return self._serialize_session(session)
 
+
+    def negotiate_with_supplier(self, extracted_data, supplier_message, history):
+        quote = float(
+            extracted_data.get("total_cost", 0)
+        )
+        expected = (
+            float(extracted_data.get("raw_material_cost", 0))
+            + float(extracted_data.get("conversion_cost", 0))
+            + float(extracted_data.get("coating_cost", 0))
+        )
+        variance = 0
+        if expected > 0:
+            variance = round(
+                ((quote - expected) / expected) * 100,
+                2
+            )
+        prompt = f"""You are a Tata Motors Procurement Negotiation Expert.
+
+        Part Details:
+        {json.dumps(extracted_data, indent=2)}
+
+        Supplier Quote:
+        {quote}
+
+        Expected Cost:
+        {expected}
+
+        Variance:
+        {variance}%
+
+        Negotiation History:
+        {json.dumps(history, indent=2)}
+
+        Supplier Message:
+        {supplier_message}
+
+        Respond professionally.
+
+        Return JSON only:
+
+        {{
+            "reply":"",
+            "counter_offer":0,
+            "status":"continue"
+        }}
+        """
+        payload = {
+        "model": self.groq_model,
+        "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Tata Motors procurement "
+                        "negotiation specialist."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.2,
+            "response_format": {
+                "type": "json_object"
+            }
+        }
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.groq_api_key}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        content = (
+            response.json()
+            ["choices"][0]
+            ["message"]["content"]
+        )
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.replace("```json", "")
+            content = content.replace("```", "")
+            content = content.strip()
+        return json.loads(content)
+
+    def run_negotiation(self, employee_id, part_number, supplier_message):
+        session = self._ensure_session(
+            employee_id,
+            part_number
+        )
+        result = self.negotiate_with_supplier(
+            session["extracted_data"],
+            supplier_message,
+            session["negotiation"]["rounds"]
+        )
+        session["negotiation"]["rounds"].append(
+            {
+                "role": "supplier",
+                "message": supplier_message,
+                "timestamp": self._now_iso()
+            }
+        )
+        session["negotiation"]["rounds"].append(
+            {
+                "role": "buyer_ai",
+                "message": result["reply"],
+                "counter_offer":
+                result["counter_offer"],
+                "timestamp": self._now_iso()
+            }
+        )
+        session["history"].append(
+            {
+                "role": "supplier",
+                "message": supplier_message
+            }
+        )
+        session["history"].append(
+            {
+                "role": "assistant",
+                "message": result["reply"]
+            }
+        )
+        session["negotiation"]["counter_offer"] = (
+            result["counter_offer"]
+        )
+        self._persist_session(session)
+        return {
+            "reply": result["reply"],
+            "session": self._serialize_session(session)
+        }

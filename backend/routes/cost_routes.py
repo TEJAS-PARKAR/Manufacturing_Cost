@@ -172,3 +172,13 @@ def reject_offer(
         part_number,
         reason
     )
+
+@router.post("/supplier/session/negotiate")
+def negotiate(
+    payload: SupplierMessageRequest
+):
+    return negotiation_service.run_negotiation(
+        payload.employee_id,
+        payload.part_number,
+        payload.message
+    )

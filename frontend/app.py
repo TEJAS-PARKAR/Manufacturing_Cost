@@ -185,7 +185,16 @@ def main() -> None:
                     timeout=45,
                 )
                 response.raise_for_status()
-                st.session_state.session = response.json()
+                api_result = response.json()
+                st.write(api_result)
+                # if "session" in api_result:
+                #     st.session_state.session = api_result["session"]
+                #     st.rerun()
+                # else:
+                #     st.error(f"Unexpected response: {api_result}")
+                # st.success(
+                #     api_result["reply"]
+                # )
             except requests.exceptions.RequestException as exc:
                 st.error(f"Unable to reach the backend: {exc}")
 
@@ -224,11 +233,11 @@ def main() -> None:
         supplier_message = st.chat_input(
             "Enter supplier demand..."
         )
-        
-        if st.button("Send Message") and supplier_message:
+
+        if supplier_message:
             try:
                 response = requests.post(
-                    f"{api_base_url}/supplier/session/message",
+                    f"{api_base_url}/supplier/session/negotiate",
                     json={
                         "employee_id": employee_id,
                         "part_number": part_number,
@@ -236,12 +245,19 @@ def main() -> None:
                     },
                     timeout=45,
                 )
-                response.raise_for_status()
-                st.session_state.session = response.json()
-                st.success("Supplier context updated and the memory summary refreshed.")
-            except requests.exceptions.RequestException as exc:
-                st.error(f"Message processing failed: {exc}")
 
+                response.raise_for_status()
+
+                api_result = response.json()
+
+                st.session_state.session = api_result["session"]
+
+                st.rerun()
+
+            except requests.exceptions.RequestException as exc:
+                st.error(
+                    f"Message processing failed: {exc}"
+                )
         if st.button("Submit for Tata Review"):
             try:
                 response = requests.post(
