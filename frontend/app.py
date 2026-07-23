@@ -186,8 +186,6 @@ def main() -> None:
                 )
                 response.raise_for_status()
                 st.session_state.session = response.json()
-                st.session_state.employee_id = employee_id
-                st.session_state.part_number = part_number
                 st.rerun()
             except requests.exceptions.RequestException as exc:
                 st.error(f"Unable to reach the backend: {exc}")
