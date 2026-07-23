@@ -1140,21 +1140,104 @@ class SupplierNegotiationService:
         return {"reply": reply, "counter_offer": counter_offer, "status": status}
 
     def run_negotiation(self, employee_id, part_number, supplier_message):
+
         session = self._ensure_session(
             employee_id,
             part_number
         )
-        if self.groq_api_key:
-            result = self.negotiate_with_supplier(
-                session["extracted_data"],
-                supplier_message,
-                session["negotiation"]["rounds"]
-            )
+
+        expected_cost = round(
+            float(session["extracted_data"].get("raw_material_cost", 0))
+            + float(session["extracted_data"].get("conversion_cost", 0))
+            + float(session["extracted_data"].get("coating_cost", 0)),
+            2
+        )
+
+        supplier_offer = self._extract_offer_from_message(
+            supplier_message
+        )
+
+        print("SUPPLIER MESSAGE:", supplier_message)
+        print("SUPPLIER OFFER:", supplier_offer)
+        print("EXPECTED COST:", expected_cost)
+
+        if supplier_offer is not None:
+
+            variance = 0
+
+            if expected_cost > 0:
+                variance = round(
+                    ((supplier_offer - expected_cost) / expected_cost) * 100,
+                    2
+                )
+
+            print("VARIANCE:", variance)
+
+            if variance <= 5:
+
+                result = {
+                    "reply": (
+                        f"Thank you. Your revised offer of "
+                        f"₹{supplier_offer:.2f} is within our "
+                        f"acceptable range. The quotation "
+                        f"can now be submitted for approval."
+                    ),
+                    "counter_offer": supplier_offer,
+                    "status": "accepted"
+                }
+
+                session["status"] = "submitted_for_review"
+
+            elif variance <= 15:
+
+                counter_offer = round(
+                    expected_cost * 1.03,
+                    2
+                )
+
+                result = {
+                    "reply": (
+                        f"Thank you for revising the offer to "
+                        f"₹{supplier_offer:.2f}. We are close "
+                        f"to agreement. Our counter-offer is "
+                        f"₹{counter_offer:.2f}."
+                    ),
+                    "counter_offer": counter_offer,
+                    "status": "continue"
+                }
+
+            else:
+
+                result = {
+                    "reply": (
+                        f"Your offer of ₹{supplier_offer:.2f} "
+                        f"remains significantly above our "
+                        f"expected cost of ₹{expected_cost:.2f}. "
+                        f"Please provide a more competitive offer."
+                    ),
+                    "counter_offer": expected_cost,
+                    "status": "continue"
+                }
+
         else:
-            result = self._negotiate_heuristic(
-                session["extracted_data"],
-                supplier_message,
-            )
+
+            if self.groq_api_key:
+
+                result = self.negotiate_with_supplier(
+                    session["extracted_data"],
+                    supplier_message,
+                    session["negotiation"]["rounds"]
+                )
+
+            else:
+
+                result = self._negotiate_heuristic(
+                    session["extracted_data"],
+                    supplier_message
+                )
+
+        session["negotiation"]["status"] = result["status"]
+
         session["negotiation"]["rounds"].append(
             {
                 "role": "supplier",
@@ -1162,32 +1245,55 @@ class SupplierNegotiationService:
                 "timestamp": self._now_iso()
             }
         )
+
         session["negotiation"]["rounds"].append(
             {
                 "role": "buyer_ai",
                 "message": result["reply"],
-                "counter_offer":
-                result["counter_offer"],
+                "counter_offer": result["counter_offer"],
                 "timestamp": self._now_iso()
             }
         )
+
         session["history"].append(
             {
                 "role": "supplier",
                 "message": supplier_message
             }
         )
+
         session["history"].append(
             {
                 "role": "assistant",
                 "message": result["reply"]
             }
         )
-        session["negotiation"]["counter_offer"] = (
-            result["counter_offer"]
-        )
+
+        session["negotiation"]["counter_offer"] = result["counter_offer"]
+
         self._persist_session(session)
+
         return {
             "reply": result["reply"],
             "session": self._serialize_session(session)
         }
+
+
+    def _extract_offer_from_message(self, message: str):
+        message = message.lower()
+
+        patterns = [
+            r"(\d+(?:\.\d+)?)\s*rupees",
+            r"(\d+(?:\.\d+)?)\s*rs",
+            r"(\d+(?:\.\d+)?)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, message)
+            if match:
+                try:
+                    return float(match.group(1))
+                except:
+                    pass
+
+        return None
