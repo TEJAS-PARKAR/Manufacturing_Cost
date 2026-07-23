@@ -1099,16 +1099,62 @@ class SupplierNegotiationService:
             content = content.strip()
         return json.loads(content)
 
+    def _negotiate_heuristic(self, extracted_data: dict, supplier_message: str) -> dict:
+        """Rule-based fallback negotiation when no LLM key is configured."""
+        quote = float(extracted_data.get("total_cost", 0))
+        expected = round(
+            float(extracted_data.get("raw_material_cost", 0))
+            + float(extracted_data.get("conversion_cost", 0))
+            + float(extracted_data.get("coating_cost", 0)),
+            2,
+        )
+        variance = 0.0
+        if expected > 0:
+            variance = round(((quote - expected) / expected) * 100, 2)
+
+        if variance <= 5:
+            reply = (
+                f"Thank you for your message. Your quoted cost of ₹{quote} is within our "
+                f"acceptable range. We are pleased to move forward with these terms."
+            )
+            counter_offer = quote
+            status = "accept"
+        elif variance <= 15:
+            counter = round(expected * 1.03, 2)
+            reply = (
+                f"Thank you for your message. Your quoted cost of ₹{quote} is slightly above "
+                f"our benchmark. We propose a counter-offer of ₹{counter}. "
+                f"Please review and confirm."
+            )
+            counter_offer = counter
+            status = "continue"
+        else:
+            reply = (
+                f"Your quoted cost of ₹{quote} exceeds our benchmark by {variance}%. "
+                f"Our expected cost is ₹{expected}. Please revise your costing sheet "
+                f"and provide a more competitive offer."
+            )
+            counter_offer = expected
+            status = "continue"
+
+        return {"reply": reply, "counter_offer": counter_offer, "status": status}
+
     def run_negotiation(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(
             employee_id,
             part_number
         )
-        result = self.negotiate_with_supplier(
-            session["extracted_data"],
-            supplier_message,
-            session["negotiation"]["rounds"]
-        )
+        if self.groq_api_key:
+            result = self.negotiate_with_supplier(
+                session["extracted_data"],
+                supplier_message,
+                session["negotiation"]["rounds"]
+            )
+        else:
+            result = self._negotiate_heuristic(
+                session["extracted_data"],
+                supplier_message,
+            )
         session["negotiation"]["rounds"].append(
             {
                 "role": "supplier",

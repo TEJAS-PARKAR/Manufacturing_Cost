@@ -97,7 +97,7 @@ class SupplierMessageRequest(SupplierSessionRequest):
 class SupplierSessionResponse(BaseModel):
     employee_id: str
     part_number: str
-    session_key: tuple[str, str]
+    session_key: Any  # serialized as list from JSON; avoid strict tuple validation
     status: str
     extracted_data: Dict[str, Any]
     raw_table: Dict[str, Any] = Field(default_factory=dict)
@@ -106,6 +106,7 @@ class SupplierSessionResponse(BaseModel):
     summary: str
     missing_fields: List[str] = Field(default_factory=list)
     review: Dict[str, Any] = Field(default_factory=dict)
+    negotiation: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SupplierReviewDashboardResponse(BaseModel):

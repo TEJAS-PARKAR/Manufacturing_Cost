@@ -185,16 +185,10 @@ def main() -> None:
                     timeout=45,
                 )
                 response.raise_for_status()
-                api_result = response.json()
-                st.write(api_result)
-                # if "session" in api_result:
-                #     st.session_state.session = api_result["session"]
-                #     st.rerun()
-                # else:
-                #     st.error(f"Unexpected response: {api_result}")
-                # st.success(
-                #     api_result["reply"]
-                # )
+                st.session_state.session = response.json()
+                st.session_state.employee_id = employee_id
+                st.session_state.part_number = part_number
+                st.rerun()
             except requests.exceptions.RequestException as exc:
                 st.error(f"Unable to reach the backend: {exc}")
 
@@ -427,19 +421,18 @@ def main() -> None:
                                 timeout=45,
                             )
                             response.raise_for_status()
-                            st.success(
-                                "Offer Approved"
+                            st.success("Offer Approved")
+                            # Reload full review dashboard after approval
+                            dash_resp = requests.get(
+                                f"{api_base_url}/supplier/session/review",
+                                params={"employee_id": employee_id, "part_number": part_number},
+                                timeout=45,
                             )
-                            
-                            st.session_state.review_dashboard = response.json()
-                            print("TYPE:", type(st.session_state.review_dashboard))
-                            print("VALUE:", st.session_state.review_dashboard)
-                            # st.rerun()
-
+                            dash_resp.raise_for_status()
+                            st.session_state.review_dashboard = dash_resp.json()
+                            st.rerun()
                         except requests.exceptions.RequestException as exc:
-                            st.error(
-                                f"Approval failed: {exc}"
-                            )
+                            st.error(f"Approval failed: {exc}")
                 # REJECT
                 with col2:
                     reject_reason = st.selectbox(
@@ -465,15 +458,18 @@ def main() -> None:
                                 timeout=45,
                             )
                             response.raise_for_status()
-                            st.session_state.review_dashboard = response.json()
-                            st.success(
-                                "Offer Rejected"
+                            st.success("Offer Rejected")
+                            # Reload full review dashboard after rejection
+                            dash_resp = requests.get(
+                                f"{api_base_url}/supplier/session/review",
+                                params={"employee_id": employee_id, "part_number": part_number},
+                                timeout=45,
                             )
-                            # st.rerun()
+                            dash_resp.raise_for_status()
+                            st.session_state.review_dashboard = dash_resp.json()
+                            st.rerun()
                         except requests.exceptions.RequestException as exc:
-                            st.error(
-                                f"Rejection failed: {exc}"
-                            )
+                            st.error(f"Rejection failed: {exc}")
 
 
 
