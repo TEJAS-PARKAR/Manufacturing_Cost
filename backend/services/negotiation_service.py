@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import BytesIO
 import json
+import logging
 import os
 import re
 from typing import Any
@@ -12,6 +13,8 @@ import requests
 from openpyxl import load_workbook
 
 from backend.services.mongo_service import MongoConnection
+
+logger = logging.getLogger(__name__)
 
 
 class SupplierNegotiationService:
@@ -72,7 +75,7 @@ class SupplierNegotiationService:
 
                 self.sessions[key] = session
 
-                print("✅ Existing session loaded from MongoDB")
+                logger.info("Existing session loaded from MongoDB for %s:%s", employee_id, part_number)
 
                 return self._serialize_session(session)
 
@@ -112,13 +115,7 @@ class SupplierNegotiationService:
 
         self._persist_session(session)
 
-        print("✅ New session created")
-        
-        print("PERSISTING SESSION")
-        print(session["employee_id"])
-        print(session["part_number"])
-        print(session["extracted_data"])
-        print("HISTORY:", len(session["history"]))
+        logger.info("New session created for %s:%s", employee_id, part_number)
 
         return self._serialize_session(session)
 
@@ -150,12 +147,9 @@ class SupplierNegotiationService:
         session["summary"] = self._build_summary(session)
         session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
         self._persist_session(session)
-        
-        print("PERSISTING SESSION")
-        print(session["employee_id"])
-        print(session["part_number"])
-        print(session["extracted_data"])
-        print("HISTORY:", len(session["history"]))
+
+        logger.debug("Supplier message recorded for %s:%s, history length: %d",
+                      employee_id, part_number, len(session["history"]))
 
         return self._serialize_session(session)
 
@@ -166,13 +160,12 @@ class SupplierNegotiationService:
             part_number
         )
         raw_table = self._extract_raw_table(file_bytes)
-        print("\nRAW TABLE:")
-        print(raw_table)
+        logger.debug("Raw table extracted: %d rows, %d columns",
+                      raw_table.get("row_count", 0), raw_table.get("column_count", 0))
         interpretation = self._interpret_excel_table(
             raw_table
         )
-        print("\nINTERPRETATION:")
-        print(interpretation)
+        logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
         session["extracted_data"].update(
@@ -181,8 +174,7 @@ class SupplierNegotiationService:
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
-        print("AFTER RECALCULATION:")
-        print(session["missing_fields"])
+        logger.debug("Missing fields after recalculation: %s", session["missing_fields"])
         session["summary"] = self._build_summary(
             session
         )
@@ -191,8 +183,7 @@ class SupplierNegotiationService:
                 session["extracted_data"]
             )
         )
-        print("\nEXTRACTED DATA AFTER UPDATE:")
-        print(session["extracted_data"])
+        logger.debug("Extracted data keys after update: %s", list(session["extracted_data"].keys()))
         self._persist_session(session)
         return self._serialize_session(session)
 
@@ -265,12 +256,8 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
-        
-        print("PERSISTING SESSION")
-        print(session["employee_id"])
-        print(session["part_number"])
-        print(session["extracted_data"])
-        print("HISTORY:", len(session["history"]))
+
+        logger.info("Session submitted for review: %s:%s", employee_id, part_number)
 
         return self._serialize_session(session)
 
@@ -296,12 +283,8 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
-        
-        print("PERSISTING SESSION")
-        print(session["employee_id"])
-        print(session["part_number"])
-        print(session["extracted_data"])
-        print("HISTORY:", len(session["history"]))
+
+        logger.info("Session approved: %s:%s", employee_id, part_number)
 
         return self._serialize_session(session)
 
@@ -310,48 +293,35 @@ class SupplierNegotiationService:
 
         key = self._session_key(employee_id, part_number)
 
-        print("=" * 50)
-        print("EMPLOYEE:", employee_id)
-        print("PART:", part_number)
-
         storage_key = self._storage_key(
             employee_id,
             part_number
         )
 
-        print("SEARCHING FOR _id:", storage_key)
+        logger.debug("Ensuring session for %s:%s (storage_key=%s)", employee_id, part_number, storage_key)
 
         session = self.sessions.get(key)
 
         if session is not None:
-            print("FOUND IN MEMORY")
+            logger.debug("Session found in memory")
             return session
 
         if self.mongo_collection is not None:
-
-            print(
-                "DOCUMENT COUNT:",
-                self.mongo_collection.count_documents({})
-            )
 
             doc = self.mongo_collection.find_one(
                 {"_id": storage_key}
             )
 
-            print("DOCUMENT FOUND:", doc is not None)
-
             if doc:
-                print("DOCUMENT ID:", doc.get("_id"))
-
                 session = self._hydrate_session(doc)
 
                 self.sessions[key] = session
 
-                print("LOADED FROM MONGO")
+                logger.debug("Session loaded from MongoDB")
 
                 return session
 
-        print("CREATING NEW SESSION")
+        logger.debug("Creating new session")
 
         return self.start_session(
             employee_id,
@@ -366,6 +336,7 @@ class SupplierNegotiationService:
             "session_key": session["session_key"],
             "status": session["status"],
             "extracted_data": session["extracted_data"],
+            "raw_table": session.get("raw_table", {}),
             "excel_interpretation": session.get("excel_interpretation", {}),
             "history": session["history"],
             "summary": session["summary"],
@@ -384,7 +355,7 @@ class SupplierNegotiationService:
     def _persist_session(self, session: dict[str, Any]) -> None:
 
         if self.mongo_collection is None:
-            print("NO MONGO COLLECTION")
+            logger.debug("No MongoDB collection available, skipping persistence")
             return
 
         doc = self._serialize_session(session)
@@ -394,21 +365,14 @@ class SupplierNegotiationService:
             session["part_number"]
         )
 
-        print("\n========== WRITING ==========")
-        print("ID:", doc["_id"])
-        print("EXTRACTED DATA:", doc["extracted_data"])
-        print("HISTORY LENGTH:", len(doc["history"]))
-
         result = self.mongo_collection.replace_one(
             {"_id": doc["_id"]},
             doc,
             upsert=True
         )
 
-        print("MATCHED:", result.matched_count)
-        print("MODIFIED:", result.modified_count)
-        print("UPSERTED:", result.upserted_id)
-        print("========== DONE ==========\n")
+        logger.debug("Session persisted: id=%s, matched=%d, modified=%d, upserted=%s",
+                      doc["_id"], result.matched_count, result.modified_count, result.upserted_id)
 
 
     def _hydrate_session(self, document: dict[str, Any]) -> dict[str, Any]:
@@ -565,7 +529,7 @@ class SupplierNegotiationService:
                 for item in row:
                     try:
                         nums.append(float(item))
-                    except Exception:
+                    except (ValueError, TypeError):
                         pass
                 if len(nums) >= 3:
                     return {
@@ -706,8 +670,8 @@ class SupplierNegotiationService:
                 },
 
             }
-            print("ROWS SENT TO GROQ:", len(raw_table.get("rows", [])))
-            print("COLUMNS:", len(raw_table.get("headers", [])))
+            logger.debug("Sending to Groq: %d rows, %d columns",
+                          len(raw_table.get("rows", [])), len(raw_table.get("headers", [])))
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={
@@ -718,17 +682,10 @@ class SupplierNegotiationService:
                 timeout=30
             )
             if response.status_code != 200:
-                print("GROQ ERROR RESPONSE:")
-                print(response.text)
+                logger.error("Groq API returned status %d", response.status_code)
             response.raise_for_status()
-            print("STATUS CODE:", response.status_code)
-            print("RAW RESPONSE:")
-            print(response.text[:5000])
+            logger.debug("Groq API responded with status %d", response.status_code)
             content = response.json()["choices"][0]["message"]["content"]
-            
-            print("========== GROQ RESPONSE ==========")
-            print(content)
-            print("===================================")
 
             content = content.strip()
 
@@ -738,13 +695,11 @@ class SupplierNegotiationService:
                 content = content.strip()
 
             parsed = json.loads(content)
-            print("\nFULL GROQ OUTPUT")
-            print(json.dumps(parsed, indent=4))
+            logger.debug("Groq output keys: %s", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed))
             if isinstance(parsed, dict):
                 return parsed
         except Exception as e:
-            print("========== GROQ ERROR ==========")
-            print(str(e))
+            logger.warning("Groq LLM interpretation failed: %s", str(e))
             return {}
         return {}
 
@@ -772,7 +727,7 @@ class SupplierNegotiationService:
         if values.get("material_rate") is not None:
             try:
                 normalized["material_rate"] = float(values["material_rate"])
-            except Exception:
+            except (ValueError, TypeError):
                 pass
         coating = self._normalize_coating(values.get("coating"))
         if coating:
@@ -1157,9 +1112,8 @@ class SupplierNegotiationService:
             supplier_message
         )
 
-        print("SUPPLIER MESSAGE:", supplier_message)
-        print("SUPPLIER OFFER:", supplier_offer)
-        print("EXPECTED COST:", expected_cost)
+        logger.debug("Negotiation: supplier_msg=%s, offer=%s, expected=%s",
+                      supplier_message[:50], supplier_offer, expected_cost)
 
         if supplier_offer is not None:
 
@@ -1170,8 +1124,6 @@ class SupplierNegotiationService:
                     ((supplier_offer - expected_cost) / expected_cost) * 100,
                     2
                 )
-
-            print("VARIANCE:", variance)
 
             if variance <= 5:
 
@@ -1293,7 +1245,7 @@ class SupplierNegotiationService:
             if match:
                 try:
                     return float(match.group(1))
-                except:
+                except (ValueError, TypeError):
                     pass
 
         return None

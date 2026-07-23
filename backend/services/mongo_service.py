@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,8 @@ except Exception:  # pragma: no cover - optional dependency guard
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+logger = logging.getLogger(__name__)
 
 
 class MongoConnection:
@@ -49,24 +52,32 @@ class MongoConnection:
             )
         return None
 
-    
+    @classmethod
+    def _mask_uri(cls, uri: str) -> str:
+        """Mask credentials in a MongoDB URI for safe logging."""
+        import re
+        return re.sub(
+            r"(mongodb(?:\+srv)?://)([^:]+):([^@]+)(@)",
+            r"\1***:***\4",
+            uri
+        )
+
     @classmethod
     def get_client(cls):
         if cls._client is not None:
             return cls._client
 
-        print("MongoClient imported:", MongoClient is not None)
-
         if MongoClient is None:
-            print("pymongo not installed")
+            logger.info("pymongo not installed — MongoDB persistence unavailable")
             return None
 
         uri = cls._build_uri()
-        print("Generated URI:", uri)
 
         if not uri:
-            print("No Mongo URI generated")
+            logger.info("No MongoDB URI configured — sessions will be in-memory only")
             return None
+
+        logger.info("Connecting to MongoDB: %s", cls._mask_uri(uri))
 
         try:
             cls._client = MongoClient(
@@ -76,13 +87,12 @@ class MongoConnection:
 
             cls._client.admin.command("ping")
 
-            print("✅ MongoDB Connected Successfully")
+            logger.info("✅ MongoDB connected successfully")
 
             return cls._client
 
         except Exception as e:
-            print("❌ MongoDB Connection Failed")
-            print("ERROR:", str(e))
+            logger.error("❌ MongoDB connection failed: %s", str(e))
             cls._client = None
             return None
 
