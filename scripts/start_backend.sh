@@ -12,4 +12,4 @@ elif command -v fuser >/dev/null 2>&1; then
   fuser -k 8000/tcp >/dev/null 2>&1 || true
 fi
 
-exec .venv/bin/python -m uvicorn backend.main:app --reload --port 8000
+exec .venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
