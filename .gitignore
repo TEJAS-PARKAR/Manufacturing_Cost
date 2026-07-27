@@ -16,3 +16,7 @@ env/
 
 # Ignore Excel lock files
 ~$*.xlsx
+
+# Ignore Node.js / React frontend build artifacts
+frontend/node_modules/
+frontend/dist/

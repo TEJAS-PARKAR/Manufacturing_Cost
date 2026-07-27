@@ -19,7 +19,15 @@ This repository now supports the requested multi-stage supplier negotiation work
 - [backend/services/negotiation_service.py](backend/services/negotiation_service.py) handles session memory, Excel intake, raw-table extraction, LLM/heuristic interpretation, summary generation, and review recommendations.
 - [backend/routes/cost_routes.py](backend/routes/cost_routes.py) exposes the supplier session APIs and review/approval endpoints.
 - [backend/models.py](backend/models.py) defines the negotiation request and response schemas.
-- [frontend/app.py](frontend/app.py) provides the supplier and Tata Motors Streamlit interfaces.
+
+## Frontend (React + Vite)
+
+The frontend is a React single-page application built with Vite, located in `frontend/`. Key files:
+
+- `frontend/src/App.jsx` — Root app with portal selection, authentication, and session state.
+- `frontend/src/api.js` — API client wrapping all backend endpoints.
+- `frontend/src/components/` — Modular components (Sidebar, LoginPage, SupplierPortal, TataPortal, CostChart, ChatHistory, etc.).
+- `frontend/src/index.css` — Tata Motors branded design system.
 
 ## Main workflow
 
@@ -34,22 +42,36 @@ This repository now supports the requested multi-stage supplier negotiation work
 
 ## Quick start
 
-### Recommended: use the included scripts
+### Using scripts (recommended)
 
+**Linux / macOS:**
 ```bash
-./scripts/setup.sh
-source .venv/bin/activate
-./scripts/start_backend.sh
-./scripts/start_frontend.sh
+./scripts/setup.sh          # Install all dependencies (Python + Node.js)
+./scripts/start_backend.sh  # Start the FastAPI backend on :8000
+./scripts/start_frontend.sh # Start the React frontend on :5173
 ```
 
-### Alternative manual start
+**Windows:**
+```batch
+scripts\setup.bat           :: Install all dependencies (Python + Node.js)
+scripts\start_backend.bat   :: Start the FastAPI backend on :8000
+scripts\start_frontend.bat  :: Start the React frontend on :5173
+```
+
+### Manual start
 
 ```bash
-python3 -m pip install -r requirements.txt
+# Terminal 1: Backend
+pip install -r requirements.txt
 uvicorn backend.main:app --reload --port 8000
-streamlit run frontend/app.py
+
+# Terminal 2: Frontend
+cd frontend
+npm install
+npm run dev
 ```
+
+The frontend will open at `http://localhost:5173`.
 
 ## Environment variables
 
@@ -77,9 +99,18 @@ export MONGODB_DB_NAME="manufacturing_cost"
 export MONGODB_COLLECTION="supplier_sessions"
 ```
 
+Frontend environment variables (optional, create `frontend/.env`):
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:8000
+VITE_SUPPLIER_USERNAME=supplier
+VITE_SUPPLIER_PASSWORD=supplier123
+VITE_TATA_USERNAME=tata
+VITE_TATA_PASSWORD=tata123
+```
+
 If a Groq key is not configured, the app will continue to work with its built-in heuristic extraction fallback. If MongoDB is not configured, sessions remain in memory for the current process.
 
 ## Production note
 
 The current implementation uses in-memory session storage by default. For production, you can enable MongoDB Atlas persistence and a managed LLM orchestration layer for higher durability and multi-instance support.
-
