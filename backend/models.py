@@ -91,8 +91,8 @@ class SupplierSessionRequest(BaseModel):
 
     @field_validator("part_number")
     @classmethod
-    def _validate_part_number(self, part_number: str) -> str:
-        pn = str(part_number).strip()
+    def validate_part_number(cls, value: str) -> str:
+        pn = str(value).strip()
         if not pn.isdigit() or len(pn) != 12:
             raise ValueError("Part number must be exactly 12 digits (0-9 only).")
         return pn
