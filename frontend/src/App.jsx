@@ -44,10 +44,25 @@ export default function App() {
   // ── Login ──
   const handleLogin = (user, pass, onError) => {
     const expected = CREDENTIALS[portal];
-    if (user === expected.username && pass === expected.password) {
+
+    // Normalize: trim spaces; username case-insensitive, password exact
+    const enteredUser = (user || '').trim().toLowerCase();
+    const enteredPass = (pass || '').trim();
+    const expectedUser = expected.username.trim().toLowerCase();
+    const expectedPass = expected.password.trim();
+
+    if (enteredUser === expectedUser && enteredPass === expectedPass) {
       setAuthenticated(true);
-      setUsername(user);
+      setUsername(user.trim());
     } else {
+      // Debug line — see the real reason in DevTools console
+      console.warn('[Login failed]', {
+        portal,
+        enteredUser,
+        expectedUser,
+        userMatch: enteredUser === expectedUser,
+        passMatch: enteredPass === expectedPass,
+      });
       onError('Invalid credentials. Please try again.');
     }
   };
