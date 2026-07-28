@@ -126,3 +126,13 @@ class SupplierReviewDashboardResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, description="Login username (equals employee_id for suppliers)")
+    password: str = Field(..., min_length=1, description="Account password")
+
+
+class LoginResponse(BaseModel):
+    token: str
+    role: str
+    username: str

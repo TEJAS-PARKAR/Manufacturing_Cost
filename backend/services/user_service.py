@@ -20,9 +20,11 @@ class UserService:
             except Exception:
                 pass
 
-    def register_user(self, username: str, password: str) -> dict[str, Any]:
+    def register_user(self, username: str, password: str, role: str = "supplier") -> dict[str, Any]:
         if not username or not password:
             raise ValueError("username and password are required")
+        if role not in ("supplier", "tata"):
+            raise ValueError("role must be 'supplier' or 'tata'")
 
         if self.collection is None:
             raise RuntimeError("MongoDB connection is not available")
@@ -37,10 +39,22 @@ class UserService:
             "username": username,
             "password_salt": salt,
             "password_hash": password_hash,
+            "role": role,
             "created_at": self._now_iso(),
         }
         self.collection.insert_one(user_doc)
-        return {"username": username, "password_hash": password_hash}
+        return {"username": username, "role": role}
+    
+    def authenticate_and_get_role(self, username: str, password: str): #-> Optional"""Return the user's role if credentials are valid, else None."""
+        if self.collection is None:
+            return None
+        user_doc = self.collection.find_one({"username": username})
+        if user_doc is None:
+            return None
+        salt = user_doc.get("password_salt", "")
+        if self._hash_password(password, salt) == user_doc.get("password_hash"):
+            return user_doc.get("role", "supplier")
+        return None
 
     def authenticate_user(self, username: str, password: str) -> bool:
         if self.collection is None:
