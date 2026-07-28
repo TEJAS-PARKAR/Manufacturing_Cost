@@ -47,7 +47,7 @@ class SupplierNegotiationService:
         part_number: str
     ) -> dict[str, Any]:
 
-        part_number = self._validate_part_number(part_number)   # ← add this
+        part_number = self._validate_part_number(part_number)
 
         key = self._session_key(
             employee_id,
@@ -292,7 +292,8 @@ class SupplierNegotiationService:
 
     
     def _ensure_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
-
+        
+        part_number = self._validate_part_number(part_number)
         key = self._session_key(employee_id, part_number)
 
         storage_key = self._storage_key(
@@ -384,6 +385,12 @@ class SupplierNegotiationService:
         if isinstance(session_key, list):
             session["session_key"] = tuple(session_key)
         return session
+
+    def _validate_part_number(self, part_number: str) -> str:
+        pn = str(part_number).strip()
+        if not pn.isdigit() or len(pn) != 12:
+            raise ValueError("Part number must be exactly 12 digits (0-9 only).")
+        return pn
 
     def _session_key(self, employee_id: str, part_number: str) -> tuple[str, str]:
         return (employee_id.strip(), part_number.strip())
