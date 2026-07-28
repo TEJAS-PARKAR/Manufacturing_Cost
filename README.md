@@ -85,10 +85,10 @@ export GROQ_MODEL="llama-3.1-8b-instant"
 Optional portal credentials:
 
 ```bash
-export SUPPLIER_USERNAME="supplier"
-export SUPPLIER_PASSWORD="supplier123"
-export TATA_USERNAME="tata"
-export TATA_PASSWORD="tata123"
+export VITE_SUPPLIER_USERNAME=""
+export VITE_SUPPLIER_PASSWORD=""
+export VITE_TATA_USERNAME=""
+export VITE_TATA_PASSWORD=""
 ```
 
 Optional MongoDB Atlas persistence:

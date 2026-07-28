@@ -20,8 +20,20 @@ app = FastAPI(
 )
 
 # Use configured CORS origins from .env, fallback to localhost defaults
+# Explicit origins from .env (optional, for custom/fixed domains)
 cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501")
 cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    # Matches ANY Codespaces + Vercel + localhost URL — no more hardcoding
+    allow_origin_regex=r"https://.*\.app\.github\.dev|https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 app.add_middleware(
     CORSMiddleware,
