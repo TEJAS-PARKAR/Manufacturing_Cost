@@ -10,6 +10,10 @@ export default function SessionForm({ onStartSession, loading }) {
       setWarning('Please enter both Employee ID and Part Number.');
       return;
     }
+    if (!/^\d{12}$/.test(partNumber)) {
+      setWarning('Part Number must be exactly 12 digits.');
+      return;
+    }
     setWarning('');
     onStartSession(employeeId, partNumber);
   };
@@ -32,9 +36,11 @@ export default function SessionForm({ onStartSession, loading }) {
           <input
             id="part-number"
             type="text"
+            inputMode="numeric"
+            maxLength={12}
             placeholder="123456789012"
             value={partNumber}
-            onChange={(e) => setPartNumber(e.target.value)}
+            onChange={(e) => setPartNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
           />
         </div>
       </div>

@@ -47,6 +47,8 @@ class SupplierNegotiationService:
         part_number: str
     ) -> dict[str, Any]:
 
+        part_number = self._validate_part_number(part_number)   # ← add this
+
         key = self._session_key(
             employee_id,
             part_number

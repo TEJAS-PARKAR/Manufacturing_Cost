@@ -87,7 +87,15 @@ class ChatCostResponse(BaseModel):
 
 class SupplierSessionRequest(BaseModel):
     employee_id: str = Field(..., min_length=1, description="Supplier employee identifier")
-    part_number: str = Field(..., min_length=1, description="12-digit part number")
+    part_number: str = Field(..., description="12-digit part number")
+
+    @field_validator("part_number")
+    @classmethod
+    def _validate_part_number(self, part_number: str) -> str:
+        pn = str(part_number).strip()
+        if not pn.isdigit() or len(pn) != 12:
+            raise ValueError("Part number must be exactly 12 digits (0-9 only).")
+        return pn
 
 
 class SupplierMessageRequest(SupplierSessionRequest):
