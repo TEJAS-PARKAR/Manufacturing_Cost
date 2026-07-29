@@ -375,6 +375,7 @@ class SupplierNegotiationService:
         session_key = session.get("session_key")
         if isinstance(session_key, list):
             session["session_key"] = tuple(session_key)
+        session["missing_fields"] = self._identify_missing_fields(session.get("extracted_data", {}))
         return session
 
     def _validate_part_number(self, part_number: str) -> str:
