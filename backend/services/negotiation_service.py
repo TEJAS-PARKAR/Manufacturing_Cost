@@ -410,7 +410,7 @@ class SupplierNegotiationService:
             missing.append("material")
         if not extracted_data.get("material_rate"):
             missing.append("material_rate")
-        if not extracted_data.get("coating"):
+        if not extracted_data.get("coating") and not extracted_data.get("coating_cost"):
             missing.append("coating")
         if not extracted_data.get("process_information"):
             missing.append("process_information")
@@ -739,6 +739,8 @@ class SupplierNegotiationService:
         ]:
             if values.get(field) is not None:
                 normalized[field] = values[field]
+        if normalized.get("coating_cost") and not normalized.get("coating"):
+            normalized["coating"] = "SURFACE PROTECTION"
         return normalized
 
     def _normalize_header(self, header: Any) -> str:
