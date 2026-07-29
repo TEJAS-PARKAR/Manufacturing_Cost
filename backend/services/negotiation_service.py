@@ -199,16 +199,7 @@ class SupplierNegotiationService:
             extracted_data.get("total_cost", 0)
         )
 
-        expected_cost = round(
-            (
-                float(extracted_data.get("raw_material_cost", 0))
-                +
-                float(extracted_data.get("conversion_cost", 0))
-                +
-                float(extracted_data.get("coating_cost", 0))
-            ),
-            2
-        )
+        expected_cost = self._compute_expected_cost(extracted_data)
 
         variance = 0
 
@@ -595,7 +586,7 @@ class SupplierNegotiationService:
             interpreted["process_information"] = process_information
 
         return interpreted
-
+    
     def _interpret_with_llm(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         if not self.groq_api_key:
             return {}
@@ -608,57 +599,32 @@ class SupplierNegotiationService:
                                     "role": "system",
                                     "content": """
                                     You are an expert in Tata Motors supplier costing sheets.
-                                    Analyze the entire costing sheet.
-                                    Extract:
-                                    quantity
-                                    material
-                                    material_grade
-                                    material_rate
-                                    thickness
-                                    width
-                                    length
-                                    IMPORTANT:
-                                    Thickness may appear as:
-                                    Th
-                                    Th.
+                                    Analyze the ENTIRE costing sheet and extract EVERY cost component.
 
-                                    Width may appear as:
-                                    Wd
-                                    Wd.
+                                    Identity / spec fields:
+                                    quantity, material, material_grade, material_rate,
+                                    thickness (Th/Th.), width (Wd/Wd.), length (Lg/Lg.),
+                                    finished_weight, scrap_weight, blank_weight
 
-                                    Length may appear as:
-                                    Lg
-                                    Lg.
+                                    COST COMPONENTS — extract each as a separate number (use null if absent):
+                                    raw_material_cost      (net material)
+                                    conversion_cost        (total of all machining/process operations)
+                                    coating_cost           (surface protection / plating / painting)
+                                    overhead_cost
+                                    icc_cost               (interest on capital / inventory carrying cost)
+                                    rejection_cost
+                                    profit                 (supplier margin / profit)
+                                    packing_cost
+                                    transport_cost         (freight / logistics)
+                                    total_cost             (the grand total on the sheet)
 
-                                    Example:
+                                    Also extract process_information: all operations under "Conversion Cost"
+                                    as a list of {process, cost}.
 
-                                    Th. 2
-                                    Wd. 95
-                                    Lg. 214
-
-                                    Return:
-
-                                    {
-                                        "thickness": 2,
-                                        "width": 95,
-                                        "length": 214
-                                    }
-
-                                    Never omit these values if present.
-
-                                    finished_weight
-                                    scrap_weight
-                                    coating
-                                    coating_cost
-                                    raw_material_cost
-                                    process_information
-                                    conversion_cost
-                                    total_cost
-                                    Extract all manufacturing operations under
-                                    "Conversion Cost".
-                                    Return them as process_information.
-                                    Return ONLY valid JSON.
-                                    Use null where unavailable.
+                                    RULES:
+                                    - Never omit a cost line that is present on the sheet.
+                                    - Return each cost as a plain number (no ₹ symbol, no %).
+                                    - Return ONLY valid JSON. Use null where a value is genuinely absent.
                                     """
                                 },
                     {
@@ -764,20 +730,15 @@ class SupplierNegotiationService:
         
         # Additional fields extracted by Groq
         for field in [
-            "material_grade",
-            "thickness",
-            "width",
-            "length",
-            "finished_weight",
-            "scrap_weight",
-            "coating_cost",
-            "raw_material_cost",
-            "conversion_cost",
+            "material_grade", "thickness", "width", "length",
+            "finished_weight", "scrap_weight", "blank_weight",
+            "raw_material_cost", "conversion_cost", "coating_cost",
+            "overhead_cost", "icc_cost", "rejection_cost",
+            "profit", "packing_cost", "transport_cost",
             "total_cost",
         ]:
             if values.get(field) is not None:
                 normalized[field] = values[field]
-
         return normalized
 
     def _normalize_header(self, header: Any) -> str:
@@ -977,65 +938,54 @@ class SupplierNegotiationService:
 
 
     def negotiate_with_supplier(self, extracted_data, supplier_message, history, quote, expected, variance):
-            prompt = f"""You are a Tata Motors Procurement Negotiation Expert.
+        breakdown = self._cost_breakdown(extracted_data)
+        prompt = f"""You are a Tata Motors Procurement Negotiation Expert.
 
-        Part Details:
-        {json.dumps(extracted_data, indent=2)}
+    Supplier's quoted total: ₹{quote}
+    Our itemised expected cost breakdown (₹): {json.dumps(breakdown, indent=2)}
+    Our expected total: ₹{expected}
+    Variance: {variance}%
 
-        Supplier's original quoted total: ₹{quote}
-        Our internal expected cost (RM + conversion + coating): ₹{expected}
-        Current variance: {variance}%
+    Negotiation History:
+    {json.dumps(history, indent=2)}
 
-        Negotiation History:
-        {json.dumps(history, indent=2)}
+    Latest Supplier Message: "{supplier_message}"
 
-        Latest Supplier Message:
-        "{supplier_message}"
+    STRICT RULES:
+    - Only claim a cost is "included" if its value in the breakdown is > 0.
+    If profit/packing/transport are 0, DO NOT say they are included.
+    - If the supplier points to a cost we excluded, acknowledge it honestly and
+    challenge whether the AMOUNT is justified — never pretend it was counted.
+    - Numbers followed by "%" are variance, not a price offer.
 
-        TASK:
-        1. Understand the supplier's message in context.
-        2. If (and ONLY if) the supplier states a NEW price/offer, extract it as a number.
-        - Numbers followed by "%" are variance/percentages, NOT offers. Never treat them as a price.
-        - If no genuine new price is stated, set extracted_offer to null.
-        3. Write a professional, natural negotiation reply.
-
-        Return JSON ONLY:
-        {{
-            "reply": "your natural language reply",
-            "extracted_offer": null,
-            "intent": "offer | question | clarification | agreement | other"
-        }}
-        """
-            payload = {
-                "model": self.groq_model,
-                "messages": [
-                    {"role": "system", "content": "You are a Tata Motors procurement negotiation specialist."},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-            }
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=30,
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"].strip()
-            if content.startswith("```"):
-                content = content.replace("```json", "").replace("```", "").strip()
-            return json.loads(content)
+    Return JSON ONLY:
+    {{ "reply": "", "extracted_offer": null, "intent": "offer|question|clarification|agreement|other" }}
+    """
+        payload = {
+            "model": self.groq_model,
+            "messages": [
+                {"role": "system", "content": "You are a Tata Motors procurement negotiation specialist."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"].strip()
+        if content.startswith("```"):
+            content = content.replace("```json", "").replace("```", "").strip()
+        return json.loads(content)
 
     def _negotiate_heuristic(self, extracted_data: dict, supplier_message: str) -> dict:
         """Rule-based fallback negotiation when no LLM key is configured."""
         quote = float(extracted_data.get("total_cost", 0))
-        expected = round(
-            float(extracted_data.get("raw_material_cost", 0))
-            + float(extracted_data.get("conversion_cost", 0))
-            + float(extracted_data.get("coating_cost", 0)),
-            2,
-        )
+        expected = self._compute_expected_cost(extracted_data)
         variance = 0.0
         if expected > 0:
             variance = round(((quote - expected) / expected) * 100, 2)
@@ -1072,12 +1022,7 @@ class SupplierNegotiationService:
         data = session["extracted_data"]
 
         quote = float(data.get("total_cost", 0))
-        expected_cost = round(
-            float(data.get("raw_material_cost", 0))
-            + float(data.get("conversion_cost", 0))
-            + float(data.get("coating_cost", 0)),
-            2,
-        )
+        expected_cost = self._compute_expected_cost(data)
 
         # ---- STEP 1: LLM leads every turn (understanding + reply + offer) ----
         supplier_offer = None
@@ -1174,3 +1119,15 @@ class SupplierNegotiationService:
                 except (ValueError, TypeError):
                     pass
         return None
+
+    COST_FIELDS = [
+        "raw_material_cost", "conversion_cost", "coating_cost",
+        "overhead_cost", "icc_cost", "rejection_cost",
+        "profit", "packing_cost", "transport_cost",
+    ]
+
+    def _cost_breakdown(self, data: dict) -> dict:
+        return {f: round(float(data.get(f) or 0), 2) for f in self.COST_FIELDS}
+
+    def _compute_expected_cost(self, data: dict) -> float:
+        return round(sum(self._cost_breakdown(data).values()), 2)
