@@ -1105,7 +1105,6 @@ class SupplierNegotiationService:
         supplier_offer = None
         llm_reply = None
         intent = "other"
-
         if self.groq_api_key:
             try:
                 baseline_variance = round(((quote - expected_cost) / expected_cost) * 100, 2) if expected_cost > 0 else 0
@@ -1115,6 +1114,26 @@ class SupplierNegotiationService:
                 )
                 llm_reply = llm_out.get("reply")
                 intent = llm_out.get("intent", "other")
+                if intent == "clarification":
+                    result = {
+                        "reply": (
+                            "Thank you for the clarification. "
+                            "We have noted that the coating cost in the sheet was entered incorrectly. "
+                            "Please upload a revised costing sheet so that we can re-evaluate the quotation."
+                        ),
+                        "counter_offer": session["negotiation"].get("counter_offer", 0),
+                        "status": "continue"
+                    }
+                    session["history"].append({
+                        "role": "assistant",
+                        "message": result["reply"],
+                        "timestamp": self._now_iso()
+                    })
+                    self._persist_session(session)
+                    return {
+                        "reply": result["reply"],
+                        "session": self._serialize_session(session)
+                    }
                 raw_offer = llm_out.get("extracted_offer")
                 if raw_offer is not None:
                     supplier_offer = float(raw_offer)
