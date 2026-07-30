@@ -8,8 +8,8 @@ from backend.services.user_service import UserService
 # --- EDIT THESE before running ---
 USERS_TO_CREATE = [
     # username (==employee_id for suppliers), password, role
-    ("EMP1001",   "demo", "supplier"),
-    ("TATA_ADMIN", "demo",     "tata"),
+    ("EMP1002",   "demo", "supplier"),
+    ("TATA_ADMIN2", "demo",     "tata"),
 ]
 
 

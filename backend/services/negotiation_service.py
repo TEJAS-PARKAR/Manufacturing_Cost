@@ -136,8 +136,18 @@ class SupplierNegotiationService:
 
     def record_supplier_message(self, employee_id: str, part_number: str, message: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
+
         parsed = self._extract_from_message(message)
-        session["extracted_data"].update(parsed)
+
+        missing_fields = set(session["missing_fields"])
+        allowed_updates = {}
+
+        for key, value in parsed.items():
+            if key in missing_fields:
+                allowed_updates[key] = value
+
+        session["extracted_data"].update(allowed_updates)
+
         session["history"].append(
             {
                 "role": "supplier",
@@ -145,13 +155,18 @@ class SupplierNegotiationService:
                 "timestamp": self._now_iso(),
             }
         )
-        session["missing_fields"] = self._identify_missing_fields(session["extracted_data"])
-        session["summary"] = self._build_summary(session)
-        session["review"]["recommendation"] = self._recommendation(session["extracted_data"])
-        self._persist_session(session)
 
-        logger.debug("Supplier message recorded for %s:%s, history length: %d",
-                      employee_id, part_number, len(session["history"]))
+        session["missing_fields"] = self._identify_missing_fields(
+            session["extracted_data"]
+        )
+
+        session["summary"] = self._build_summary(session)
+
+        session["review"]["recommendation"] = self._recommendation(
+            session["extracted_data"]
+        )
+
+        self._persist_session(session)
 
         return self._serialize_session(session)
 
@@ -170,9 +185,20 @@ class SupplierNegotiationService:
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
-        session["extracted_data"].update(
-            interpretation
-        )
+        session.setdefault("revisions", [])
+
+        for key, new_value in interpretation.items():
+            old_value = session["extracted_data"].get(key)
+
+            if old_value != new_value:
+                session["revisions"].append({
+                    "field": key,
+                    "old_value": old_value,
+                    "new_value": new_value,
+                    "source": "excel_reupload",
+                    "timestamp": self._now_iso()
+                })
+        session["extracted_data"].update(interpretation)
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
@@ -336,6 +362,7 @@ class SupplierNegotiationService:
             "summary": session["summary"],
             "missing_fields": session["missing_fields"],
             "review": session["review"],
+            "revisions": session.get("revisions", []),
             "negotiation": session.get(
                 "negotiation",
                 {}
