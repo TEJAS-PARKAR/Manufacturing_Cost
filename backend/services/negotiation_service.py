@@ -202,6 +202,18 @@ class SupplierNegotiationService:
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
+        if session["missing_fields"]:
+            session["history"].append(
+                {
+                    "role": "assistant",
+                    "message": (
+                        "The following mandatory fields are missing:\n\n• "
+                        + "\n• ".join(session["missing_fields"])
+                        + "\n\nPlease provide them through chat or upload a revised costing sheet."
+                    ),
+                    "timestamp": self._now_iso()
+                }
+            )
         logger.debug("Missing fields after recalculation: %s", session["missing_fields"])
         session["summary"] = self._build_summary(
             session
@@ -374,7 +386,6 @@ class SupplierNegotiationService:
 
     
     def _persist_session(self, session: dict[str, Any]) -> None:
-
         if self.mongo_collection is None:
             logger.debug("No MongoDB collection available, skipping persistence")
             return
@@ -1050,6 +1061,42 @@ class SupplierNegotiationService:
     def run_negotiation(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(employee_id, part_number)
         data = session["extracted_data"]
+        msg = supplier_message.lower().strip()
+        missing_queries = [
+            "missing",
+            "missing field",
+            "missing fields",
+            "details missing",
+            "any details missing",
+            "what is missing",
+            "which fields",
+            "required fields"
+        ]
+        if any(q in msg for q in missing_queries):
+            missing = session["missing_fields"]
+            if missing:
+                reply = (
+                    "The following mandatory fields are still missing:\n\n• "
+                    + "\n• ".join(missing)
+                    + "\n\nPlease provide the missing details via chat or upload a revised costing sheet."
+                )
+            else:
+                reply = (
+                    "All mandatory fields have been successfully extracted. "
+                    "No additional information is currently required."
+                )
+            session["history"].append(
+                {
+                    "role": "assistant",
+                    "message": reply,
+                    "timestamp": self._now_iso()
+                }
+            )
+            self._persist_session(session)
+            return {
+                "reply": reply,
+                "session": self._serialize_session(session)
+            }
 
         quote = float(data.get("total_cost", 0))
         expected_cost = self._compute_expected_cost(data)
