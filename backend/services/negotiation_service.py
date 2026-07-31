@@ -999,9 +999,20 @@ class SupplierNegotiationService:
     challenge whether the AMOUNT is justified — never pretend it was counted.
     - Numbers followed by "%" are variance, not a price offer.
 
-    Return JSON ONLY:
-    {{ "reply": "", "extracted_offer": null, "intent": "offer|question|clarification|agreement|other" }}
+        Return JSON ONLY:
+    {{ "reply": "", "extracted_offer": null,
+       "intent": "offer|question|clarification|correction|agreement|rejection|other" }}
+
+    INTENT DEFINITIONS:
+    - "correction": supplier says a value in the costing SHEET is wrong/mistaken
+      (e.g. "we entered it wrong", "the sheet has an error").
+    - "question": supplier is ASKING us something (e.g. "what is your final offer?").
+    - "clarification": supplier is explaining/elaborating, NOT reporting a sheet error.
+    - "offer": supplier states a NEW price.
+    - "agreement": supplier accepts our counter-offer.
+    - "rejection": supplier refuses to reduce further.
     """
+
         payload = {
             "model": self.groq_model,
             "messages": [
@@ -1268,3 +1279,6 @@ class SupplierNegotiationService:
 
     def _compute_expected_cost(self, data: dict) -> float:
         return round(sum(self._cost_breakdown(data).values()), 2)
+
+
+        

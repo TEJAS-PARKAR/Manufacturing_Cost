@@ -208,10 +208,11 @@ def reject_offer(employee_id: str, part_number: str,
     return negotiation_service.reject_offer(employee_id, part_number, reason)
 
 
-@router.get("/", include_in_schema=False)
+@router.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def root() -> dict:
     return {
         "service": "manufacturing-cost-api",
         "status": "running",
         "docs": "/docs"
     }
+
