@@ -1233,8 +1233,8 @@ class SupplierNegotiationService:
         session["negotiation"]["rounds"].append(
             {"role": "buyer_ai", "message": result["reply"], "counter_offer": result["counter_offer"], "timestamp": self._now_iso()}
         )
-        session["history"].append({"role": "supplier", "message": supplier_message})
-        session["history"].append({"role": "assistant", "message": result["reply"]})
+        session["history"].append({"role": "supplier", "message": supplier_message,"timestamp": self._now_iso()})
+        session["history"].append({"role": "assistant", "message": result["reply"],"timestamp": self._now_iso()})
         session["negotiation"]["counter_offer"] = result["counter_offer"]
 
         self._persist_session(session)
