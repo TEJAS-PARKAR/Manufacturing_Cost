@@ -206,3 +206,12 @@ def reject_offer(employee_id: str, part_number: str,
                  identity: dict = Depends(get_identity)):
     require_tata(identity)
     return negotiation_service.reject_offer(employee_id, part_number, reason)
+
+
+@router.get("/", include_in_schema=False)
+def root() -> dict:
+    return {
+        "service": "manufacturing-cost-api",
+        "status": "running",
+        "docs": "/docs"
+    }
