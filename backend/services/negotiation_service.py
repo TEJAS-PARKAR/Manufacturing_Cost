@@ -1108,7 +1108,44 @@ class SupplierNegotiationService:
                 "reply": reply,
                 "session": self._serialize_session(session)
             }
-
+        final_offer_queries = [
+            "final offer",
+            "your offer",
+            "best offer",
+            "counter offer",
+            "counter-offer",
+            "what can you offer"
+        ]
+        if any(q in msg for q in final_offer_queries):
+            expected_cost = self._compute_expected_cost(data)
+            current_counter = (
+                session["negotiation"].get("counter_offer")
+                or expected_cost
+            )
+            reply = (
+                f"Based on our cost analysis, our expected cost is "
+                f"₹{expected_cost:.2f}. Our current counter-offer is "
+                f"₹{current_counter:.2f}. Please confirm if this is acceptable."
+            )
+            session["history"].append(
+                {
+                    "role": "supplier",
+                    "message": supplier_message,
+                    "timestamp": self._now_iso()
+                }
+            )
+            session["history"].append(
+                {
+                    "role": "assistant",
+                    "message": supplier_message,
+                    "timestamp": self._now_iso()
+                }
+            )
+            self._persist_session(session)
+            return {
+                "reply": reply,
+                "session": self._serialize_session(session)
+            }
         quote = float(data.get("total_cost", 0))
         expected_cost = self._compute_expected_cost(data)
 
@@ -1125,17 +1162,13 @@ class SupplierNegotiationService:
                 )
                 llm_reply = llm_out.get("reply")
                 intent = llm_out.get("intent", "other")
-
-                if intent == "clarification":
-
+                if intent == "correction":
                     reply = (
-                        "Thank you for the clarification. "
-                        "We have noted that the coating cost in the sheet was entered incorrectly. "
+                        "Thank you for pointing this out. "
+                        "We have noted that the costing sheet contains an incorrect value. "
                         "Please upload a revised costing sheet so that we can re-evaluate the quotation."
                     )
-
                     last = session["history"][-1] if session["history"] else None
-
                     if (
                         last
                         and last.get("role") == "assistant"
@@ -1145,7 +1178,6 @@ class SupplierNegotiationService:
                             "reply": reply,
                             "session": self._serialize_session(session)
                         }
-
                     session["history"].append(
                         {
                             "role": "supplier",
@@ -1153,7 +1185,6 @@ class SupplierNegotiationService:
                             "timestamp": self._now_iso()
                         }
                     )
-
                     session["history"].append(
                         {
                             "role": "assistant",
@@ -1161,7 +1192,6 @@ class SupplierNegotiationService:
                             "timestamp": self._now_iso()
                         }
                     )
-
                     session["negotiation"]["rounds"].append(
                         {
                             "role": "supplier",
@@ -1170,7 +1200,6 @@ class SupplierNegotiationService:
                             "timestamp": self._now_iso()
                         }
                     )
-
                     session["negotiation"]["rounds"].append(
                         {
                             "role": "buyer_ai",
@@ -1178,14 +1207,61 @@ class SupplierNegotiationService:
                             "timestamp": self._now_iso()
                         }
                     )
-
                     self._persist_session(session)
-
                     return {
                         "reply": reply,
                         "session": self._serialize_session(session)
                     }
-
+                if intent == "agreement":
+                    reply = (
+                        "Thank you for accepting the counter-offer. "
+                        "The quotation will now be submitted for Tata Motors review."
+                    )
+                    session["status"] = "submitted_for_review"
+                    session["history"].append(
+                        {
+                            "role": "supplier",
+                            "message": supplier_message,
+                            "timestamp": self._now_iso()
+                        }
+                    )
+                    session["history"].append(
+                        {
+                            "role": "assistant",
+                            "message": reply,
+                            "timestamp": self._now_iso()
+                        }
+                    )
+                    self._persist_session(session)
+                    return {
+                        "reply": reply,
+                        "session": self._serialize_session(session)
+                    }
+                if intent == "rejection":
+                    reply = (
+                        "We acknowledge your position. "
+                        "However, the quotation remains above our expected benchmark. "
+                        "At the current price, the quotation cannot be approved."
+                    )
+                    session["history"].append(
+                        {
+                            "role": "supplier",
+                            "message": supplier_message,
+                            "timestamp": self._now_iso()
+                        }
+                    )
+                    session["history"].append(
+                        {
+                            "role": "assistant",
+                            "message": reply,
+                            "timestamp": self._now_iso()
+                        }
+                    )
+                    self._persist_session(session)
+                    return {
+                        "reply": reply,
+                        "session": self._serialize_session(session)
+                    }
                 raw_offer = llm_out.get("extracted_offer")
                 if raw_offer is not None:
                     supplier_offer = float(raw_offer)
