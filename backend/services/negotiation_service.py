@@ -232,15 +232,11 @@ class SupplierNegotiationService:
         self,
         extracted_data
     ):
-
         supplier_quote = float(
             extracted_data.get("total_cost", 0)
         )
-
         expected_cost = self._compute_expected_cost(extracted_data)
-
         variance = 0
-
         if expected_cost > 0:
             variance = round(
                 (
@@ -249,28 +245,26 @@ class SupplierNegotiationService:
                 ) * 100,
                 2
             )
-
         if variance <= 5:
             recommendation = "approve"
             counter_offer = supplier_quote
-
         elif variance <= 15:
             recommendation = "negotiate"
             counter_offer = round(
                 expected_cost * 1.03,
                 2
             )
-
         else:
             recommendation = "reject"
             counter_offer = expected_cost
-
+        drivers = self._rank_negotiation_drivers(extracted_data)[:3]
         return {
             "supplier_quote": supplier_quote,
             "predicted_cost": expected_cost,
             "variance": variance,
             "ai_recommendation": recommendation,
             "counter_offer": counter_offer,
+            "negotiation_drivers": drivers,
             "status": "active",
             "rounds": []
         }
@@ -1288,21 +1282,26 @@ class SupplierNegotiationService:
                 session["status"] = "submitted_for_review"
             elif variance <= 15:
                 counter_offer = round(expected_cost * 1.03, 2)
+                challenge = self._build_negotiation_question(data)
                 decision_reply = (
-                    f"Thank you for revising the offer to ₹{supplier_offer:.2f}. We are close to "
-                    f"agreement. Our counter-offer is ₹{counter_offer:.2f}."
+                    f"Thank you for revising the offer to ₹{supplier_offer:.2f}. "
+                    f"Our counter-offer is ₹{counter_offer:.2f}. "
+                    f"{challenge}"
                 )
                 status = "continue"
             else:
-                counter_offer = expected_cost
+                counter_offer = round(expected_cost * 1.02, 2)
+                challenge = self._build_negotiation_question(data)
                 decision_reply = (
                     f"Your offer of ₹{supplier_offer:.2f} remains above our expected cost of "
-                    f"₹{expected_cost:.2f} ({variance}% variance). Our counter-offer is ₹{counter_offer:.2f}."
+                    f"₹{expected_cost:.2f} ({variance}% variance). "
+                    f"Our counter-offer is ₹{counter_offer:.2f}. "
+                    f"{challenge}"
                 )
                 status = "continue"
 
             # Prefer the LLM's natural phrasing, but numbers came from code above.
-            reply = llm_reply if llm_reply else decision_reply
+            reply = decision_reply
             result = {"reply": reply, "counter_offer": counter_offer, "status": status}
 
         else:
@@ -1345,16 +1344,94 @@ class SupplierNegotiationService:
         return None
 
     COST_FIELDS = [
-        "raw_material_cost", "conversion_cost", "coating_cost",
-        "overhead_cost", "icc_cost", "rejection_cost",
-        "profit", "packing_cost", "transport_cost",
+        "raw_material_cost",
+        "conversion_cost",
+        "coating_cost",
+        "overhead_cost",
+        "icc_cost",
+        "rejection_cost",
+        "profit",
+        "packing_cost",
+        "transport_cost",
     ]
+    NEGOTIABILITY = {
+        "raw_material_cost": "low",
+        "conversion_cost": "medium",
+        "coating_cost": "low",
+        "overhead_cost": "medium",
+        "icc_cost": "medium",
+        "rejection_cost": "medium",
+        "profit": "high",
+        "packing_cost": "high",
+        "transport_cost": "high",
+    }
 
     def _cost_breakdown(self, data: dict) -> dict:
         return {f: round(float(data.get(f) or 0), 2) for f in self.COST_FIELDS}
 
-    def _compute_expected_cost(self, data: dict) -> float:
-        return round(sum(self._cost_breakdown(data).values()), 2)
+    def _rank_negotiation_drivers(self, data: dict):
+        breakdown = self._cost_breakdown(data)
+        scores = []
+        for field, value in breakdown.items():
+            if value <= 0:
+                continue
+            negotiability = self.NEGOTIABILITY.get(field, "low")
+            weight = {
+                "high": 3,
+                "medium": 2,
+                "low": 1
+            }[negotiability]
+            score = value * weight
+            scores.append({
+                "field": field,
+                "value": value,
+                "negotiability": negotiability,
+                "score": score
+            })
+        scores.sort(
+            key=lambda x: x["score"],
+            reverse=True
+        )
+        return scores
+    
+    def _build_negotiation_question(self, data: dict):
+        drivers = self._rank_negotiation_drivers(data)[:2]
+        if not drivers:
+            return "Could you provide more details regarding your costing?"
+        lines = []
+        for driver in drivers:
+            field = driver["field"]
+            value = driver["value"]
+            name_map = {
+                "packing_cost": "Packing Cost",
+                "profit": "Profit Allowance",
+                "transport_cost": "Transportation Cost",
+                "raw_material_cost": "Raw Material Cost",
+                "conversion_cost": "Conversion Cost",
+                "coating_cost": "Coating Cost",
+                "overhead_cost": "Overhead Cost",
+                "icc_cost": "ICC Cost",
+                "rejection_cost": "Rejection Cost",
+            }
+            lines.append(
+                f"• {name_map.get(field, field)}: ₹{value:.2f}"
+            )
 
-
-        
+        return (
+            "Our analysis identified the following key cost drivers:\n\n"
+            + "\n".join(lines)
+            + "\n\nCould you justify these costs and explore possible optimization opportunities?"
+        )
+    
+    def _compute_expected_cost(self, data):
+        return round(
+            float(data.get("raw_material_cost") or 0)
+            + float(data.get("conversion_cost") or 0)
+            + float(data.get("coating_cost") or 0)
+            + float(data.get("overhead_cost") or 0)
+            + float(data.get("icc_cost") or 0)
+            + float(data.get("rejection_cost") or 0)
+            + float(data.get("packing_cost") or 0)
+            + float(data.get("transport_cost") or 0),
+            2
+        )
