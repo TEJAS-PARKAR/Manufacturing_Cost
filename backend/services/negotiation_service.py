@@ -1099,7 +1099,7 @@ class SupplierNegotiationService:
             session["history"].append(
                 {
                     "role": "assistant",
-                    "message": reply,
+                    "message": supplier_message,
                     "timestamp": self._now_iso()
                 }
             )
@@ -1137,7 +1137,7 @@ class SupplierNegotiationService:
             session["history"].append(
                 {
                     "role": "assistant",
-                    "message": supplier_message,
+                    "message": reply,
                     "timestamp": self._now_iso()
                 }
             )
