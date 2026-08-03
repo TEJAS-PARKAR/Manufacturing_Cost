@@ -7,15 +7,12 @@ import logging
 import os
 import re
 from typing import Any
-
 import pandas as pd
 import requests
 from openpyxl import load_workbook
-
 from backend.services.mongo_service import MongoConnection
 
 logger = logging.getLogger(__name__)
-
 
 class SupplierNegotiationService:
     REQUIRED_FIELDS = [
@@ -59,10 +56,8 @@ class SupplierNegotiationService:
 
         if session is not None:
             return self._serialize_session(session)
-
         # Check MongoDB before creating
         if self.mongo_collection is not None:
-
             doc = self.mongo_collection.find_one(
                 {
                     "_id": self._storage_key(
@@ -71,14 +66,10 @@ class SupplierNegotiationService:
                     )
                 }
             )
-
             if doc is not None:
                 session = self._hydrate_session(doc)
-
                 self.sessions[key] = session
-
                 logger.info("Existing session loaded from MongoDB for %s:%s", employee_id, part_number)
-
                 return self._serialize_session(session)
 
         # Create new session only if nothing found
@@ -1398,29 +1389,44 @@ class SupplierNegotiationService:
         drivers = self._rank_negotiation_drivers(data)[:2]
         if not drivers:
             return "Could you provide more details regarding your costing?"
-        lines = []
+        questions = []
         for driver in drivers:
             field = driver["field"]
             value = driver["value"]
-            name_map = {
-                "packing_cost": "Packing Cost",
-                "profit": "Profit Allowance",
-                "transport_cost": "Transportation Cost",
-                "raw_material_cost": "Raw Material Cost",
-                "conversion_cost": "Conversion Cost",
-                "coating_cost": "Coating Cost",
-                "overhead_cost": "Overhead Cost",
-                "icc_cost": "ICC Cost",
-                "rejection_cost": "Rejection Cost",
-            }
-            lines.append(
-                f"• {name_map.get(field, field)}: ₹{value:.2f}"
-            )
-
+            if field == "packing_cost":
+                questions.append(
+                    f"Packing cost is ₹{value:.2f} per part. "
+                    f"Could you provide details of packaging materials, returnable packing options, "
+                    f"and any opportunities for logistics optimization?"
+                )
+            elif field == "profit":
+                questions.append(
+                    f"Profit allowance is ₹{value:.2f} per part. "
+                    f"Considering potential business volume, is there scope to improve the margin structure?"
+                )
+            elif field == "raw_material_cost":
+                questions.append(
+                    f"Raw material cost is ₹{value:.2f} per part. "
+                    f"Could you share the material procurement rate, yield assumptions, and scrap percentage used?"
+                )
+            elif field == "conversion_cost":
+                questions.append(
+                    f"Conversion cost is ₹{value:.2f} per part. "
+                    f"Could you provide a breakdown of the major operations and identify any opportunities for process optimization?"
+                )
+            elif field == "coating_cost":
+                questions.append(
+                    f"Coating cost is ₹{value:.2f} per part. "
+                    f"Please clarify the coating specification, process, and basis used for arriving at this cost."
+                )
+            elif field == "transport_cost":
+                questions.append(
+                    f"Transportation cost is ₹{value:.2f} per part. "
+                    f"Can shipment consolidation or alternate logistics methods reduce this cost?"
+                )
         return (
-            "Our analysis identified the following key cost drivers:\n\n"
-            + "\n".join(lines)
-            + "\n\nCould you justify these costs and explore possible optimization opportunities?"
+            "Our analysis identified the following areas for review:\n\n• "
+            + "\n\n• ".join(questions)
         )
     
     def _compute_expected_cost(self, data):
