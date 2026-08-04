@@ -567,64 +567,74 @@ class SupplierNegotiationService:
             payload = {
                 "model": self.groq_model,
                 "messages": [
-                                {
-                                    "role": "system",
-                                    "content": """
-                                    You are an expert in Tata Motors supplier costing sheets.
-                                    Analyze the ENTIRE costing sheet and extract EVERY cost component.
+                    {
+                        "role": "system",
+                        "content": """
+                        You are an expert in Tata Motors supplier costing sheets.
 
-                                    Identity / spec fields:
-                                    quantity, material, material_grade, material_rate,
-                                    thickness (Th/Th.), width (Wd/Wd.), length (Lg/Lg.),
-                                    finished_weight, scrap_weight, blank_weight
+                        Analyze the ENTIRE costing sheet and extract ALL costing data.
 
-                                    COST COMPONENTS — extract each as a separate number (use null if absent):
-                                    raw_material_cost      (net material)
-                                    conversion_cost        (total of all machining/process operations)
-                                    coating_cost           (surface protection / plating / painting)
-                                    overhead_cost
-                                    icc_cost               (interest on capital / inventory carrying cost)
-                                    rejection_cost
-                                    profit                 (supplier margin / profit)
-                                    packing_cost
-                                    transport_cost         (freight / logistics)
-                                    total_cost             (the grand total on the sheet)
+                        Identity/spec fields:
+                        quantity,
+                        material,
+                        material_grade,
+                        material_rate,
+                        thickness,
+                        width,
+                        length,
+                        finished_weight,
+                        scrap_weight,
+                        blank_weight
 
-                                    Also extract process_information: all operations under "Conversion Cost"
-                                    as a list of {process, cost}.
+                        COST COMPONENTS:
+                        raw_material_cost
+                        conversion_cost
+                        coating_cost
+                        overhead_cost
+                        icc_cost
+                        rejection_cost
+                        profit
+                        packing_cost
+                        transport_cost
+                        total_cost
 
-                                    RULES:
-                                    - Never omit a cost line that is present on the sheet.
-                                    - IMPORTANT:
-                                    - Never return mathematical expressions.
-                                    - Always calculate totals before returning.
-                                    - Every numeric field must contain a single numeric value.
-                                    - Invalid:
-                                    "coating_cost": 3.2 + 0.8
-                                    - Valid:
-                                    "coating_cost": 4.0
-                                    - Return a single JSON object.
-                                    - No markdown.
-                                    - No explanation.
-                                    - No code fences. Use null where a value is genuinely absent.
-                                    """
-                                },
+                        IMPORTANT:
+                        - Extract material_rate from the raw material section.
+                        - Extract every available numeric value.
+                        - Never return mathematical expressions.
+                        - Always calculate totals before returning.
+                        - Every numeric field must contain a single numeric value.
+                        - Use null if a field is missing.
+                        - Return JSON only.
+
+                        Extract process_information as:
+                        [
+                            {
+                                "process": "...",
+                                "cost": ...
+                            }
+                        ]
+                        """
+                    },
                     {
                         "role": "user",
                         "content": json.dumps(
                             {
                                 "sheet_name": raw_table.get("sheet_name"),
                                 "headers": raw_table.get("headers"),
-                                "rows": raw_table.get("rows", []),
+                                "rows": raw_table.get("rows", [])
                             },
-                            ensure_ascii=False,
-                        ),
-                    },
+                            ensure_ascii=False
+                        )
+                    }
                 ],
-                "temperature": 0.1,
+                "temperature": 0.1
             }
-            logger.debug("Sending to Groq: %d rows, %d columns",
-                          len(raw_table.get("rows", [])), len(raw_table.get("headers", [])))
+            logger.debug(
+                "Sending to Groq: %d rows, %d columns",
+                len(raw_table.get("rows", [])),
+                len(raw_table.get("headers", []))
+            )
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={
@@ -641,9 +651,14 @@ class SupplierNegotiationService:
                     response.text
                 )
             response.raise_for_status()
-            logger.debug("Groq API responded with status %d", response.status_code)
+            logger.debug(
+                "Groq API responded with status %d",
+                response.status_code
+            )
             content = response.json()["choices"][0]["message"]["content"]
             content = content.strip()
+            # Fix things like:
+            # "coating_cost": 3.25 + 0.89
             content = re.sub(
                 r'(:\s*)(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)',
                 lambda m: f"{m.group(1)}{float(m.group(2)) + float(m.group(3))}",
@@ -655,24 +670,25 @@ class SupplierNegotiationService:
                 content = content.strip()
             try:
                 parsed = json.loads(content)
-                logger.error("PARSED DATA: %s", parsed)
+                logger.info("PARSED DATA: %s", parsed)
             except Exception as e:
                 logger.error("JSON Parse Error: %s", str(e))
                 logger.error("RAW CONTENT:\n%s", content)
                 return {}
             logger.debug(
                 "Groq output keys: %s",
-                list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)
+                list(parsed.keys()) if isinstance(parsed, dict)
+                else type(parsed)
             )
             if isinstance(parsed, dict):
                 return parsed
             return {}
-            except Exception as e:
-                logger.warning(
-                    "Groq LLM interpretation failed: %s",
-                    str(e)
-                )
-                return {}
+
+        except Exception as e:
+            logger.warning(
+                "Groq LLM interpretation failed: %s",
+                str(e)
+            )
             return {}
 
     def _normalize_interpreted_values(self, values: dict[str, Any]) -> dict[str, Any]:
