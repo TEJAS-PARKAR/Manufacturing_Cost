@@ -524,7 +524,7 @@ class SupplierNegotiationService:
 
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
-        llm_result = self._interpret_with_llm(raw_table)
+        llm_result = self._interpret_with_llm(raw_table) or {}
         dimensions = self._extract_dimensions_from_raw_table(
             raw_table.get("rows", [])
         )
@@ -595,7 +595,14 @@ class SupplierNegotiationService:
 
                                     RULES:
                                     - Never omit a cost line that is present on the sheet.
-                                    - Return each cost as a plain number (no ₹ symbol, no %).
+                                    - IMPORTANT:
+                                    - Never return mathematical expressions.
+                                    - Always calculate totals before returning.
+                                    - Every numeric field must contain a single numeric value.
+                                    - Invalid:
+                                    "coating_cost": 3.2 + 0.8
+                                    - Valid:
+                                    "coating_cost": 4.0
                                     - Return a single JSON object.
                                     - No markdown.
                                     - No explanation.
@@ -637,34 +644,36 @@ class SupplierNegotiationService:
             logger.debug("Groq API responded with status %d", response.status_code)
             content = response.json()["choices"][0]["message"]["content"]
             content = content.strip()
-            try:
-                parsed = json.loads(content)
-            except Exception as e:
-                logger.error("JSON Parse Error: %s", str(e))
-                logger.error("RAW CONTENT:\n%s", content)
-                match = re.search(
-                    r"\{[\s\S]*\}",
-                    content
-                )
-                if not match:
-                    return {}
-                try:
-                    parsed = json.loads(
-                        match.group()
-                    )
-                except Exception:
-                    return {}
+            content = re.sub(
+                r'(:\s*)(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)',
+                lambda m: f"{m.group(1)}{float(m.group(2)) + float(m.group(3))}",
+                content
+            )
             if content.startswith("```"):
                 content = re.sub(r"^```json", "", content)
                 content = content.replace("```", "")
                 content = content.strip()
-            logger.debug("Groq output keys: %s", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed))
+            try:
+                parsed = json.loads(content)
+                logger.error("PARSED DATA: %s", parsed)
+            except Exception as e:
+                logger.error("JSON Parse Error: %s", str(e))
+                logger.error("RAW CONTENT:\n%s", content)
+                return {}
+            logger.debug(
+                "Groq output keys: %s",
+                list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)
+            )
             if isinstance(parsed, dict):
                 return parsed
-        except Exception as e:
-            logger.warning("Groq LLM interpretation failed: %s", str(e))
             return {}
-        return {}
+            except Exception as e:
+                logger.warning(
+                    "Groq LLM interpretation failed: %s",
+                    str(e)
+                )
+                return {}
+            return {}
 
     def _normalize_interpreted_values(self, values: dict[str, Any]) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
