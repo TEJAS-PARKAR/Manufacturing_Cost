@@ -637,22 +637,27 @@ class SupplierNegotiationService:
             logger.debug("Groq API responded with status %d", response.status_code)
             content = response.json()["choices"][0]["message"]["content"]
             content = content.strip()
-            if content.startswith("```"):
-                content = re.sub(r"^```json", "", content)
-                content = content.replace("```", "")
-                content = content.strip()
             try:
                 parsed = json.loads(content)
-            except Exception:
+            except Exception as e:
+                logger.error("JSON Parse Error: %s", str(e))
+                logger.error("RAW CONTENT:\n%s", content)
                 match = re.search(
                     r"\{[\s\S]*\}",
                     content
                 )
                 if not match:
                     return {}
-                parsed = json.loads(
-                    match.group()
-                )
+                try:
+                    parsed = json.loads(
+                        match.group()
+                    )
+                except Exception:
+                    return {}
+            if content.startswith("```"):
+                content = re.sub(r"^```json", "", content)
+                content = content.replace("```", "")
+                content = content.strip()
             logger.debug("Groq output keys: %s", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed))
             if isinstance(parsed, dict):
                 return parsed
