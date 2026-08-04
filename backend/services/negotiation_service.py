@@ -596,7 +596,10 @@ class SupplierNegotiationService:
                                     RULES:
                                     - Never omit a cost line that is present on the sheet.
                                     - Return each cost as a plain number (no ₹ symbol, no %).
-                                    - Return ONLY valid JSON. Use null where a value is genuinely absent.
+                                    - Return a single JSON object.
+                                    - No markdown.
+                                    - No explanation.
+                                    - No code fences. Use null where a value is genuinely absent.
                                     """
                                 },
                     {
@@ -638,7 +641,18 @@ class SupplierNegotiationService:
                 content = re.sub(r"^```json", "", content)
                 content = content.replace("```", "")
                 content = content.strip()
-            parsed = json.loads(content)
+            try:
+                parsed = json.loads(content)
+            except Exception:
+                match = re.search(
+                    r"\{[\s\S]*\}",
+                    content
+                )
+                if not match:
+                    return {}
+                parsed = json.loads(
+                    match.group()
+                )
             logger.debug("Groq output keys: %s", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed))
             if isinstance(parsed, dict):
                 return parsed
