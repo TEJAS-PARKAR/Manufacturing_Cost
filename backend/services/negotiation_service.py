@@ -154,7 +154,10 @@ class SupplierNegotiationService:
             raw_table
         )
         logger.info("RAW TABLE HEADERS: %s", raw_table.get("headers"))
-        logger.info("INTERPRETATION: %s", interpretation)   
+        print("\n\n====================")
+        print("INTERPRETATION")
+        print(interpretation)
+        print("====================\n\n") 
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
