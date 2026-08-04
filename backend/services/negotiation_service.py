@@ -43,17 +43,13 @@ class SupplierNegotiationService:
         employee_id: str,
         part_number: str
     ) -> dict[str, Any]:
-
         part_number = self._validate_part_number(part_number)
-
         key = self._session_key(
             employee_id,
             part_number
         )
-
         # Check memory first
         session = self.sessions.get(key)
-
         if session is not None:
             return self._serialize_session(session)
         # Check MongoDB before creating
@@ -71,9 +67,7 @@ class SupplierNegotiationService:
                 self.sessions[key] = session
                 logger.info("Existing session loaded from MongoDB for %s:%s", employee_id, part_number)
                 return self._serialize_session(session)
-
         # Create new session only if nothing found
-        
         session = {
             "employee_id": employee_id,
             "part_number": part_number,
@@ -99,17 +93,13 @@ class SupplierNegotiationService:
                 "ai_recommendation": "",
                 "counter_offer": 0,
                 "status": "pending",
-                "rounds": []
+                "rounds": [],
+                "challenged_drivers": []
             }
         }
-
-
         self.sessions[key] = session
-
         self._persist_session(session)
-
         logger.info("New session created for %s:%s", employee_id, part_number)
-
         return self._serialize_session(session)
 
     
@@ -127,18 +117,13 @@ class SupplierNegotiationService:
 
     def record_supplier_message(self, employee_id: str, part_number: str, message: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
-
         parsed = self._extract_from_message(message)
-
         missing_fields = set(session["missing_fields"])
         allowed_updates = {}
-
         for key, value in parsed.items():
             if key in missing_fields:
                 allowed_updates[key] = value
-
         session["extracted_data"].update(allowed_updates)
-
         session["history"].append(
             {
                 "role": "supplier",
@@ -146,19 +131,14 @@ class SupplierNegotiationService:
                 "timestamp": self._now_iso(),
             }
         )
-
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
-
         session["summary"] = self._build_summary(session)
-
         session["review"]["recommendation"] = self._recommendation(
             session["extracted_data"]
         )
-
         self._persist_session(session)
-
         return self._serialize_session(session)
 
     
@@ -177,10 +157,8 @@ class SupplierNegotiationService:
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
         session.setdefault("revisions", [])
-
         for key, new_value in interpretation.items():
             old_value = session["extracted_data"].get(key)
-
             if old_value != new_value:
                 session["revisions"].append({
                     "field": key,
@@ -257,7 +235,8 @@ class SupplierNegotiationService:
             "counter_offer": counter_offer,
             "negotiation_drivers": drivers,
             "status": "active",
-            "rounds": []
+            "rounds": [],
+            "challenged_drivers": []
         }
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -272,9 +251,7 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
-
         logger.info("Session submitted for review: %s:%s", employee_id, part_number)
-
         return self._serialize_session(session)
 
     def get_review_dashboard(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -299,9 +276,7 @@ class SupplierNegotiationService:
         )
         session["summary"] = self._build_summary(session)
         self._persist_session(session)
-
         logger.info("Session approved: %s:%s", employee_id, part_number)
-
         return self._serialize_session(session)
 
     
@@ -309,37 +284,25 @@ class SupplierNegotiationService:
         
         part_number = self._validate_part_number(part_number)
         key = self._session_key(employee_id, part_number)
-
         storage_key = self._storage_key(
             employee_id,
             part_number
         )
-
         logger.debug("Ensuring session for %s:%s (storage_key=%s)", employee_id, part_number, storage_key)
-
         session = self.sessions.get(key)
-
         if session is not None:
             logger.debug("Session found in memory")
             return session
-
         if self.mongo_collection is not None:
-
             doc = self.mongo_collection.find_one(
                 {"_id": storage_key}
             )
-
             if doc:
                 session = self._hydrate_session(doc)
-
                 self.sessions[key] = session
-
                 logger.debug("Session loaded from MongoDB")
-
                 return session
-
         logger.debug("Creating new session")
-
         return self.start_session(
             employee_id,
             part_number
@@ -374,20 +337,17 @@ class SupplierNegotiationService:
         if self.mongo_collection is None:
             logger.debug("No MongoDB collection available, skipping persistence")
             return
-
         doc = self._serialize_session(session)
         doc.pop("raw_table", None)
         doc["_id"] = self._storage_key(
             session["employee_id"],
             session["part_number"]
         )
-
         result = self.mongo_collection.replace_one(
             {"_id": doc["_id"]},
             doc,
             upsert=True
         )
-
         logger.debug("Session persisted: id=%s, matched=%d, modified=%d, upserted=%s",
                       doc["_id"], result.matched_count, result.modified_count, result.upserted_id)
 
@@ -467,7 +427,6 @@ class SupplierNegotiationService:
         quantity_match = re.search(r"(\d+(?:,\d+)*)\s*(pieces?|pcs?|units?|qty)", normalized)
         if quantity_match:
             extracted["quantity"] = int(quantity_match.group(1).replace(",", ""))
-
         dimension_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:x|by|×)\s*(\d+(?:\.\d+)?)\s*(?:x|by|×)\s*(\d+(?:\.\d+)?)", normalized)
         if dimension_match:
             extracted["dimensions"] = [
@@ -475,7 +434,6 @@ class SupplierNegotiationService:
                 float(dimension_match.group(2)),
                 float(dimension_match.group(3)),
             ]
-
         material_map = {
             "crca": "CRCA",
             "mild steel": "MILD STEEL",
@@ -486,7 +444,6 @@ class SupplierNegotiationService:
             if keyword in normalized:
                 extracted["material"] = value
                 break
-
         coating_keywords = {
             "powder coating": "POWDER COATING",
             "painting": "PAINTING",
@@ -497,7 +454,6 @@ class SupplierNegotiationService:
             if keyword in normalized:
                 extracted["coating"] = value
                 break
-
         process_keywords = []
         if "laser" in normalized or "cut" in normalized:
             process_keywords.append("LASER CUTTING")
@@ -509,11 +465,9 @@ class SupplierNegotiationService:
             process_keywords.append("DRILLING")
         if process_keywords:
             extracted["process_information"] = process_keywords
-
         rate_match = re.search(r"material rate\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)", normalized)
         if rate_match:
             extracted["material_rate"] = float(rate_match.group(1))
-
         return extracted
 
     def _extract_raw_table(self, file_bytes: bytes) -> dict[str, Any]:
@@ -525,7 +479,6 @@ class SupplierNegotiationService:
         data_rows = []
         for row in rows[1:]:
             data_rows.append([self._clean_cell(value) for value in row])
-
         dataframe = pd.DataFrame(data_rows, columns=headers) if headers else pd.DataFrame(data_rows)
         return {
             "sheet_name": worksheet.title,
@@ -573,42 +526,33 @@ class SupplierNegotiationService:
         llm_result.update(dimensions)
         if llm_result:
             return self._normalize_interpreted_values(llm_result)
-
         headers = [self._normalize_header(header) for header in raw_table.get("headers", [])]
         rows = raw_table.get("rows", [])
         if not headers or not rows:
             return {}
-
         first_row = rows[0]
         lookup: dict[str, Any] = {}
         for index, header in enumerate(headers):
             lookup[self._normalize_header_key(header)] = first_row[index] if index < len(first_row) else None
-
         interpreted: dict[str, Any] = {}
         quantity = self._extract_quantity_from_lookup(lookup)
         if quantity is not None:
             interpreted["quantity"] = quantity
-
         dimensions = self._extract_dimensions_from_lookup(lookup)
         if dimensions:
             interpreted["dimensions"] = dimensions
-
         material = self._extract_material_from_lookup(lookup)
         if material:
             interpreted["material"] = material
-
         material_rate = self._extract_numeric_from_lookup(lookup, ["material_rate", "rate_per_kg", "rate", "rate_kg"])
         if material_rate is not None:
             interpreted["material_rate"] = material_rate
-
         coating = self._extract_coating_from_lookup(lookup)
         if coating:
             interpreted["coating"] = coating
-
         process_information = self._extract_process_information_from_lookup(lookup)
         if process_information:
             interpreted["process_information"] = process_information
-
         return interpreted
     
     def _interpret_with_llm(self, raw_table: dict[str, Any]) -> dict[str, Any]:
@@ -618,7 +562,6 @@ class SupplierNegotiationService:
             payload = {
                 "model": self.groq_model,
                 "messages": [
-                    
                                 {
                                     "role": "system",
                                     "content": """
@@ -667,7 +610,6 @@ class SupplierNegotiationService:
                 "response_format": {
                     "type": "json_object"
                 },
-
             }
             logger.debug("Sending to Groq: %d rows, %d columns",
                           len(raw_table.get("rows", [])), len(raw_table.get("headers", [])))
@@ -685,14 +627,11 @@ class SupplierNegotiationService:
             response.raise_for_status()
             logger.debug("Groq API responded with status %d", response.status_code)
             content = response.json()["choices"][0]["message"]["content"]
-
             content = content.strip()
-
             if content.startswith("```"):
                 content = re.sub(r"^```json", "", content)
                 content = content.replace("```", "")
                 content = content.strip()
-
             parsed = json.loads(content)
             logger.debug("Groq output keys: %s", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed))
             if isinstance(parsed, dict):
@@ -709,7 +648,6 @@ class SupplierNegotiationService:
         if values.get("dimensions"):
             if isinstance(values["dimensions"], list):
                 normalized["dimensions"] = [float(item) for item in values["dimensions"]]
-        
         if (
             values.get("thickness") is not None
             and values.get("width") is not None
@@ -750,8 +688,6 @@ class SupplierNegotiationService:
                         }
                     )
             normalized["process_information"] = processes
-
-        
         # Additional fields extracted by Groq
         for field in [
             "material_grade", "thickness", "width", "length",
@@ -1273,7 +1209,10 @@ class SupplierNegotiationService:
                 session["status"] = "submitted_for_review"
             elif variance <= 15:
                 counter_offer = round(expected_cost * 1.03, 2)
-                challenge = self._build_negotiation_question(data)
+                challenge = self._build_negotiation_question(
+                    data,
+                    session
+                )
                 decision_reply = (
                     f"Thank you for revising the offer to ₹{supplier_offer:.2f}. "
                     f"Our counter-offer is ₹{counter_offer:.2f}. "
@@ -1282,7 +1221,10 @@ class SupplierNegotiationService:
                 status = "continue"
             else:
                 counter_offer = round(expected_cost * 1.02, 2)
-                challenge = self._build_negotiation_question(data)
+                challenge = self._build_negotiation_question(
+                    data,
+                    session
+                )
                 decision_reply = (
                     f"Your offer of ₹{supplier_offer:.2f} remains above our expected cost of "
                     f"₹{expected_cost:.2f} ({variance}% variance). "
@@ -1356,6 +1298,17 @@ class SupplierNegotiationService:
         "packing_cost": "high",
         "transport_cost": "high",
     }
+    NEGOTIATION_PRIORITY = [
+        "packing_cost",
+        "profit",
+        "conversion_cost",
+        "raw_material_cost",
+        "coating_cost",
+        "transport_cost",
+        "overhead_cost",
+        "icc_cost",
+        "rejection_cost",
+    ]
 
     def _cost_breakdown(self, data: dict) -> dict:
         return {f: round(float(data.get(f) or 0), 2) for f in self.COST_FIELDS}
@@ -1379,20 +1332,43 @@ class SupplierNegotiationService:
                 "negotiability": negotiability,
                 "score": score
             })
+        priority_order = {
+            field: idx
+            for idx, field in enumerate(self.NEGOTIATION_PRIORITY)
+        }
         scores.sort(
-            key=lambda x: x["score"],
-            reverse=True
+            key=lambda x: (
+                priority_order.get(x["field"], 999),
+                -x["value"]
+            )
         )
         return scores
     
-    def _build_negotiation_question(self, data: dict):
-        drivers = self._rank_negotiation_drivers(data)[:2]
+    def _build_negotiation_question(
+        self,
+        data: dict,
+        session: dict
+    ):
+        challenged = set(
+            session["negotiation"].get(
+                "challenged_drivers",
+                []
+            )
+        )
+        drivers = [
+            d for d in self._rank_negotiation_drivers(data)
+            if d["field"] not in challenged
+        ]
+        drivers = drivers[:1]
         if not drivers:
             return "Could you provide more details regarding your costing?"
         questions = []
         for driver in drivers:
             field = driver["field"]
             value = driver["value"]
+            session["negotiation"]["challenged_drivers"].append(
+                field
+            )
             if field == "packing_cost":
                 questions.append(
                     f"Packing cost is ₹{value:.2f} per part. "
