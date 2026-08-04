@@ -612,9 +612,6 @@ class SupplierNegotiationService:
                     },
                 ],
                 "temperature": 0.1,
-                "response_format": {
-                    "type": "json_object"
-                },
             }
             logger.debug("Sending to Groq: %d rows, %d columns",
                           len(raw_table.get("rows", [])), len(raw_table.get("headers", [])))
