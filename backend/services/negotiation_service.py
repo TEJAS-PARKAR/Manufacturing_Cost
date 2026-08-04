@@ -154,10 +154,7 @@ class SupplierNegotiationService:
             raw_table
         )
         logger.info("RAW TABLE HEADERS: %s", raw_table.get("headers"))
-        print("\n\n====================")
-        print("INTERPRETATION")
-        print(interpretation)
-        print("====================\n\n") 
+        logger.debug("INTERPRETATION: %s", interpretation)
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
@@ -564,6 +561,12 @@ class SupplierNegotiationService:
         if not self.groq_api_key:
             return {}
         try:
+            # H2: Truncate rows to avoid context window overflow on large sheets
+            rows_to_send = raw_table.get("rows", [])[:50]
+            row_note = ""
+            if len(raw_table.get("rows", [])) > 50:
+                row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
+
             payload = {
                 "model": self.groq_model,
                 "messages": [
@@ -622,16 +625,19 @@ class SupplierNegotiationService:
                             {
                                 "sheet_name": raw_table.get("sheet_name"),
                                 "headers": raw_table.get("headers"),
-                                "rows": raw_table.get("rows", [])
+                                "rows": rows_to_send,
+                                "note": row_note,
                             },
                             ensure_ascii=False
                         )
                     }
                 ],
-                "temperature": 0.1
+                "temperature": 0.1,
+                "response_format": {"type": "json_object"},
             }
             logger.debug(
-                "Sending to Groq: %d rows, %d columns",
+                "Sending to Groq: %d rows (of %d total), %d columns",
+                len(rows_to_send),
                 len(raw_table.get("rows", [])),
                 len(raw_table.get("headers", []))
             )
@@ -668,13 +674,26 @@ class SupplierNegotiationService:
                 content = re.sub(r"^```json", "", content)
                 content = content.replace("```", "")
                 content = content.strip()
+
+            parsed = None
             try:
                 parsed = json.loads(content)
                 logger.info("PARSED DATA: %s", parsed)
-            except Exception as e:
-                logger.error("JSON Parse Error: %s", str(e))
-                logger.error("RAW CONTENT:\n%s", content)
-                return {}
+            except json.JSONDecodeError as e:
+                # Fallback: try to extract the first JSON object from the response
+                logger.warning("Direct JSON parse failed: %s — attempting regex extraction", str(e))
+                json_match = re.search(r'\{[\s\S]*\}', content)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group())
+                        logger.info("PARSED DATA (regex fallback): %s", parsed)
+                    except json.JSONDecodeError:
+                        logger.error("Regex fallback also failed. RAW CONTENT:\n%s", content)
+                        return {}
+                else:
+                    logger.error("No JSON object found in LLM response. RAW CONTENT:\n%s", content)
+                    return {}
+
             logger.debug(
                 "Groq output keys: %s",
                 list(parsed.keys()) if isinstance(parsed, dict)

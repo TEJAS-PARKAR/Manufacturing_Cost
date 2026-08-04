@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const RENDER_BACKEND = 'https://manufacturing-cost.onrender.com'
+const LOCAL_BACKEND = 'http://127.0.0.1:8000'
 
 export default defineConfig({
   plugins: [react()],
@@ -9,25 +9,25 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      '/supplier': {
-        target: RENDER_BACKEND,
+      '/login': {
+        target: LOCAL_BACKEND,
         changeOrigin: true,
-        secure: true,
+      },
+      '/supplier': {
+        target: LOCAL_BACKEND,
+        changeOrigin: true,
       },
       '/health': {
-        target: RENDER_BACKEND,
+        target: LOCAL_BACKEND,
         changeOrigin: true,
-        secure: true,
       },
       '/estimate-cost': {
-        target: RENDER_BACKEND,
+        target: LOCAL_BACKEND,
         changeOrigin: true,
-        secure: true,
       },
       '/chat-cost': {
-        target: RENDER_BACKEND,
+        target: LOCAL_BACKEND,
         changeOrigin: true,
-        secure: true,
       },
     },
   },

@@ -5,10 +5,12 @@ import os
 import re
 from typing import Any, Dict, List
 
+# pyrefly: ignore [missing-import]
 import numpy as np
 import requests
 
 try:
+    # pyrefly: ignore [missing-import]
     import xgboost as xgb
 except ImportError:  # pragma: no cover - optional dependency guard
     xgb = None
@@ -80,6 +82,7 @@ class ChatCostService:
                     {"role": "user", "content": message},
                 ],
                 "temperature": 0.1,
+                "response_format": {"type": "json_object"},
             }
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -93,7 +96,9 @@ class ChatCostService:
             parsed = json.loads(content)
             if isinstance(parsed, dict):
                 return parsed
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("LLM extraction failed: %s", str(exc))
             return None
 
     def extract_structured_data(self, message: str) -> Dict[str, Any]:

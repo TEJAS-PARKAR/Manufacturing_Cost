@@ -115,6 +115,7 @@ class SupplierSessionResponse(BaseModel):
     missing_fields: List[str] = Field(default_factory=list)
     review: Dict[str, Any] = Field(default_factory=dict)
     negotiation: Dict[str, Any] = Field(default_factory=dict)
+    revisions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class SupplierReviewDashboardResponse(BaseModel):
