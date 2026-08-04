@@ -153,6 +153,8 @@ class SupplierNegotiationService:
         interpretation = self._interpret_excel_table(
             raw_table
         )
+        logger.info("RAW TABLE HEADERS: %s", raw_table.get("headers"))
+        logger.info("INTERPRETATION: %s", interpretation)   
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
@@ -390,7 +392,7 @@ class SupplierNegotiationService:
             missing.append("quantity")
         if not extracted_data.get("dimensions"):
             missing.append("dimensions")
-        if not extracted_data.get("material"):
+        if (not extracted_data.get("material") and not extracted_data.get("material_grade")):
             missing.append("material")
         if not extracted_data.get("material_rate"):
             missing.append("material_rate")
