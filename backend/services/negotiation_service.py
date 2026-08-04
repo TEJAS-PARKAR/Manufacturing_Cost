@@ -628,7 +628,11 @@ class SupplierNegotiationService:
                 timeout=30
             )
             if response.status_code != 200:
-                logger.error("Groq API returned status %d", response.status_code)
+                logger.error(
+                    "Groq Error %s: %s",
+                    response.status_code,
+                    response.text
+                )
             response.raise_for_status()
             logger.debug("Groq API responded with status %d", response.status_code)
             content = response.json()["choices"][0]["message"]["content"]
