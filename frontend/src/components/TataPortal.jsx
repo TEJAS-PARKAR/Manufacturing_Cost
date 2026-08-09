@@ -271,7 +271,7 @@ export default function TataPortal({ employeeId, partNumber }) {
 
             {/* ── Chat History ── */}
             <h3 className="section-heading">Negotiation History</h3>
-            <ChatHistory history={session.history || []} />
+            <ChatHistory history={session.history || []} currentUserRole="tata" />
 
             <hr className="section-divider" />
 

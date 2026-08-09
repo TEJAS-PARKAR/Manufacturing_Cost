@@ -255,7 +255,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
         </div>
       )}
 
-      <ChatHistory history={session.history || []} />
+      <ChatHistory history={session.history || []} currentUserRole="supplier" />
 
       <form className="chat-input-bar" onSubmit={handleSendMessage}>
         <input

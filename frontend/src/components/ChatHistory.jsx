@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 
-export default function ChatHistory({ history }) {
+export default function ChatHistory({ history, currentUserRole }) {
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -18,26 +18,42 @@ export default function ChatHistory({ history }) {
         const message = item.message || '';
         const timestamp = item.timestamp || '';
 
-        let cssClass, roleLabel;
-        if (role === 'supplier') {
-          cssClass = 'chat-supplier';
-          roleLabel = 'Supplier';
-        } else if (role === 'assistant') {
-          cssClass = 'chat-assistant';
-          roleLabel = 'AI Buyer Agent';
-        } else if (role === 'tata') {
-          cssClass = 'chat-assistant';
-          roleLabel = 'Tata Motors';
-        } else {
-          cssClass = 'chat-system';
+        let isMe = false;
+        let isSystem = false;
+        let roleLabel = '';
+
+        if (role === 'system') {
+          isSystem = true;
           roleLabel = 'System';
+        } else if (currentUserRole === 'supplier') {
+          isMe = (role === 'supplier');
+          roleLabel = isMe ? 'You (Supplier)' : 'Tata Motors AI';
+        } else if (currentUserRole === 'tata') {
+          isMe = (role === 'assistant' || role === 'tata');
+          roleLabel = isMe ? 'You (Tata Motors)' : 'Supplier';
+        } else {
+          // Fallback if currentUserRole is missing
+          isSystem = true;
+        }
+
+        if (isSystem) {
+          return (
+            <div key={idx} className="chat-message-row system">
+              <div className="chat-bubble chat-system">
+                <div className="chat-msg">{message}</div>
+                {timestamp && <div className="chat-ts">{timestamp}</div>}
+              </div>
+            </div>
+          );
         }
 
         return (
-          <div key={idx} className={cssClass}>
-            <div className="chat-role">{roleLabel}</div>
-            <div className="chat-msg">{message}</div>
-            {timestamp && <div className="chat-ts">{timestamp}</div>}
+          <div key={idx} className={`chat-message-row ${isMe ? 'me' : 'other'}`}>
+            <div className={`chat-bubble ${isMe ? 'chat-me' : 'chat-other'}`}>
+              <div className="chat-role">{roleLabel}</div>
+              <div className="chat-msg">{message}</div>
+              {timestamp && <div className="chat-ts">{timestamp}</div>}
+            </div>
           </div>
         );
       })}
