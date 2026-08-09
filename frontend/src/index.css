@@ -886,3 +886,200 @@ html, body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Sheet Optimization & Dimension Sections
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Cutting Allowance Prompt ── */
+.allowance-prompt {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2px solid #1B3A5C;
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  margin: 1.2rem 0;
+  text-align: center;
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+.allowance-prompt-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.allowance-prompt h4 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1B3A5C;
+  margin-bottom: 0.4rem;
+}
+
+.allowance-prompt p {
+  font-size: 0.9rem;
+  color: #495057;
+  margin-bottom: 1rem;
+}
+
+.allowance-prompt-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.allowance-prompt-buttons button {
+  min-width: 180px;
+  padding: 0.65rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.allowance-prompt-buttons button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.btn-warning {
+  background: linear-gradient(135deg, #E8B300 0%, #d4a200 100%);
+  color: #1a1a1a;
+}
+
+/* ── Sheet Optimization Section ── */
+.sheet-opt-section {
+  margin: 1.2rem 0;
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+.sheet-opt-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.2rem 1.5rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+}
+
+.sheet-opt-banner.optimal {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  border: 1px solid #28a745;
+}
+
+.sheet-opt-banner.not-optimal {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border: 1px solid #ffc107;
+}
+
+.sheet-opt-icon {
+  font-size: 1.6rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sheet-opt-banner strong {
+  font-size: 1rem;
+  color: #1B3A5C;
+}
+
+.sheet-opt-banner p {
+  font-size: 0.88rem;
+  color: #495057;
+  margin-top: 0.25rem;
+  line-height: 1.5;
+}
+
+/* ── Sheet Utilization Table ── */
+.sheet-util-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin: 1rem 0;
+  font-size: 0.88rem;
+}
+
+.sheet-util-table thead {
+  background: linear-gradient(135deg, #1B3A5C 0%, #274C77 100%);
+}
+
+.sheet-util-table thead th {
+  padding: 0.7rem 1rem;
+  color: #fff;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: 0.02em;
+}
+
+.sheet-util-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.sheet-util-table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+.sheet-util-table tbody tr:hover {
+  background: #e9ecef;
+}
+
+.sheet-util-table tbody tr.best-row {
+  background: linear-gradient(135deg, #d4edda 0%, #e8f5e9 100%);
+  font-weight: 600;
+}
+
+.sheet-util-table tbody td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+}
+
+/* ── Badges ── */
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.badge-optimal {
+  background: #28a745;
+  color: #fff;
+}
+
+.badge-current {
+  background: #6c757d;
+  color: #fff;
+}
+
+/* ── Dimension Section Headers in CostSummary Table ── */
+.dimension-section-header td {
+  padding-top: 1rem !important;
+  padding-bottom: 0.4rem !important;
+  border-bottom: 2px solid #1B3A5C !important;
+  color: #1B3A5C;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.cost-table td.indent {
+  padding-left: 1.5rem;
+}
+
+/* ── Fade-slide animation ── */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

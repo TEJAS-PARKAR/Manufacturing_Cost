@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 import json
 import logging
+import math
 import os
 import re
 from typing import Any
@@ -29,6 +30,12 @@ class SupplierNegotiationService:
         "ALUMINUM": {"material_rate": 220.0, "process_cost": 190.0, "overhead": 80.0},
         "STAINLESS": {"material_rate": 300.0, "process_cost": 250.0, "overhead": 100.0},
     }
+
+    APPROVED_SHEET_SIZES = [
+        (1250, 2500),
+        (1500, 2500),
+        (1250, 2700),
+    ]
 
     def __init__(self) -> None:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
@@ -203,10 +210,10 @@ class SupplierNegotiationService:
         self,
         extracted_data
     ):
-        supplier_quote = float(
+        supplier_quote = round(float(
             extracted_data.get("total_cost", 0)
-        )
-        expected_cost = self._compute_expected_cost(extracted_data)
+        ), 2)
+        expected_cost = round(self._compute_expected_cost(extracted_data), 2)
         variance = 0
         if expected_cost > 0:
             variance = round(
@@ -327,6 +334,10 @@ class SupplierNegotiationService:
             "revisions": session.get("revisions", []),
             "negotiation": session.get(
                 "negotiation",
+                {}
+            ),
+            "sheet_optimization": session.get(
+                "sheet_optimization",
                 {}
             )
         }
@@ -572,52 +583,62 @@ class SupplierNegotiationService:
                 "messages": [
                     {
                         "role": "system",
-                        "content": """
-                        You are an expert in Tata Motors supplier costing sheets.
+                        "content": """You are an expert in Tata Motors supplier costing sheets.
 
-                        Analyze the ENTIRE costing sheet and extract ALL costing data.
+Analyze the costing sheet and return a FLAT JSON object with SCALAR values only.
+Do NOT return arrays or nested objects for the top-level fields (except process_information).
 
-                        Identity/spec fields:
-                        quantity,
-                        material,
-                        material_grade,
-                        material_rate,
-                        thickness,
-                        width,
-                        length,
-                        finished_weight,
-                        scrap_weight,
-                        blank_weight
+RETURN THESE EXACT KEYS (use null if not found):
 
-                        COST COMPONENTS:
-                        raw_material_cost
-                        conversion_cost
-                        coating_cost
-                        overhead_cost
-                        icc_cost
-                        rejection_cost
-                        profit
-                        packing_cost
-                        transport_cost
-                        total_cost
+  "quantity"            : integer — production batch quantity (e.g. 132)
+  "material"            : string — single material name/grade (e.g. "10 MM E 46", "CRCA")
+  "material_grade"      : string — grade only (e.g. "E 46")
+  "material_rate"       : number — Rs/kg rate from the raw material section (e.g. 60.3)
 
-                        IMPORTANT:
-                        - Extract material_rate from the raw material section.
-                        - Extract every available numeric value.
-                        - Never return mathematical expressions.
-                        - Always calculate totals before returning.
-                        - Every numeric field must contain a single numeric value.
-                        - Use null if a field is missing.
-                        - Return JSON only.
+  SHEET DIMENSIONS (from "Full Sheet Size" row):
+  "sheet_length"        : number — Full Sheet length in mm
+  "sheet_width"         : number — Full Sheet width in mm
+  "sheet_thickness"     : number — Full Sheet thickness in mm
 
-                        Extract process_information as:
-                        [
-                            {
-                                "process": "...",
-                                "cost": ...
-                            }
-                        ]
-                        """
+  PART DIMENSIONS (from "Shear Size" or "Blank Size" row):
+  "part_length"         : number — Shear/Blank length in mm
+  "part_width"          : number — Shear/Blank width in mm
+  "part_thickness"      : number — Shear/Blank thickness in mm
+
+  BACKWARD COMPAT (populate from sheet/part fields):
+  "thickness"           : number — same as sheet_thickness
+  "width"               : number — same as part_width
+  "length"              : number — same as part_length
+
+  "gross_weight"        : number — gross weight per piece in kg
+  "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
+  "scrap_weight"        : number — scrap weight per piece in kg
+  "blank_weight"        : number — blank weight per piece in kg
+  "raw_material_cost"   : number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")
+  "conversion_cost"     : number — total conversion cost per piece (look for "TOTAL CON. COST")
+  "coating_cost"        : number — sum of all coating/surface protection costs per piece
+  "overhead_cost"       : number — overhead per piece
+  "icc_cost"            : number — ICC on raw material per piece
+  "rejection_cost"      : number — rejection allowance per piece
+  "profit"              : number — profit per piece
+  "packing_cost"        : number — packing cost per piece
+  "transport_cost"      : number — transport cost per piece
+  "total_cost"          : number — final TOTAL cost per piece (the last/bottom "TOTAL" in the sheet)
+  "coating"             : string — coating type (e.g. "POWDER COATING", "ZINC PLATING")
+  "process_information" : array of {"process": string, "cost": number} — individual process line items
+
+CRITICAL RULES:
+- "material" must be a SINGLE STRING, not a list or array.
+- Every numeric field must be a single number, never an expression.
+- Extract "Full Sheet Size" dimensions into sheet_length, sheet_width, sheet_thickness.
+- Extract "Shear Size" or "Blank Size" dimensions into part_length, part_width, part_thickness.
+- If only one set of dimensions exists, use it for both sheet_* and part_* fields.
+- Also copy sheet_thickness to thickness, part_width to width, part_length to length.
+- Sum all coating-related line items (powder coating + shot blasting + primer) into coating_cost.
+- Use the "NET MATL. COST PER PIECE" row value as raw_material_cost.
+- Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
+- Use null if a field is genuinely not present in the sheet.
+"""
                     },
                     {
                         "role": "user",
@@ -713,7 +734,10 @@ class SupplierNegotiationService:
     def _normalize_interpreted_values(self, values: dict[str, Any]) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
         if values.get("quantity") is not None:
-            normalized["quantity"] = int(float(values["quantity"]))
+            try:
+                normalized["quantity"] = int(float(values["quantity"]))
+            except (ValueError, TypeError):
+                pass
         if values.get("dimensions"):
             if isinstance(values["dimensions"], list):
                 normalized["dimensions"] = [float(item) for item in values["dimensions"]]
@@ -722,24 +746,68 @@ class SupplierNegotiationService:
             and values.get("width") is not None
             and values.get("length") is not None
         ):
+            try:
+                normalized["dimensions"] = [
+                    round(float(values["thickness"]), 2),
+                    round(float(values["width"]), 2),
+                    round(float(values["length"]), 2),
+                ]
+            except (ValueError, TypeError):
+                pass
+
+        # --- Handle separate sheet vs part dimensions ---
+        for prefix in ("sheet", "part"):
+            for dim in ("length", "width", "thickness"):
+                key = f"{prefix}_{dim}"
+                val = values.get(key)
+                if val is not None:
+                    try:
+                        normalized[key] = round(float(val), 2)
+                    except (ValueError, TypeError):
+                        pass
+
+        # Populate part_* from old fields if not already set
+        if not normalized.get("part_length") and normalized.get("length"):
+            normalized["part_length"] = round(float(normalized["length"]), 2)
+        if not normalized.get("part_width") and normalized.get("width"):
+            normalized["part_width"] = round(float(normalized["width"]), 2)
+        if not normalized.get("part_thickness") and normalized.get("thickness"):
+            normalized["part_thickness"] = round(float(normalized["thickness"]), 2)
+
+        # Populate sheet_* from old fields if not already set
+        if not normalized.get("sheet_length"):
+            normalized["sheet_length"] = normalized.get("part_length", 0)
+        if not normalized.get("sheet_width"):
+            normalized["sheet_width"] = normalized.get("part_width", 0)
+        if not normalized.get("sheet_thickness"):
+            normalized["sheet_thickness"] = normalized.get("part_thickness", 0)
+
+        # Rebuild backward-compat dimensions from part fields
+        if normalized.get("part_thickness") and normalized.get("part_width") and normalized.get("part_length"):
             normalized["dimensions"] = [
-                float(values["thickness"]),
-                float(values["width"]),
-                float(values["length"]),
+                normalized["part_thickness"],
+                normalized["part_width"],
+                normalized["part_length"],
             ]
-        material = self._normalize_material(values.get("material"))
+
+        # --- Handle material (may be string, list-of-dicts, or stringified list) ---
+        raw_material = values.get("material")
+        material = self._extract_material_name(raw_material)
         if material:
             normalized["material"] = material
+
         if values.get("material_rate") is not None:
             try:
                 normalized["material_rate"] = float(values["material_rate"])
             except (ValueError, TypeError):
                 pass
+
         coating = self._normalize_coating(values.get("coating"))
         if coating:
             normalized["coating"] = coating
+
         process_information = values.get("process_information")
-        if process_information:
+        if process_information and isinstance(process_information, list):
             processes = []
             for item in process_information:
                 if isinstance(item, dict):
@@ -757,20 +825,165 @@ class SupplierNegotiationService:
                         }
                     )
             normalized["process_information"] = processes
-        # Additional fields extracted by Groq
+
+        # Additional fields extracted by Groq (all rounded to 2 dp)
         for field in [
             "material_grade", "thickness", "width", "length",
             "finished_weight", "scrap_weight", "blank_weight",
+            "gross_weight",
             "raw_material_cost", "conversion_cost", "coating_cost",
             "overhead_cost", "icc_cost", "rejection_cost",
             "profit", "packing_cost", "transport_cost",
             "total_cost",
         ]:
-            if values.get(field) is not None:
-                normalized[field] = values[field]
+            val = values.get(field)
+            if val is not None:
+                try:
+                    normalized[field] = round(float(val), 2)
+                except (ValueError, TypeError):
+                    normalized[field] = val
+
         if normalized.get("coating_cost") and not normalized.get("coating"):
             normalized["coating"] = "SURFACE PROTECTION"
+
+        # --- Post-process: fill missing cost fields from process_information ---
+        self._postprocess_from_process_info(normalized)
+
+        # --- If material_rate still missing, try to extract from material list ---
+        if not normalized.get("material_rate") and isinstance(raw_material, list):
+            for entry in raw_material:
+                if isinstance(entry, dict):
+                    rate = entry.get("MATERIAL_RATE") or entry.get("material_rate")
+                    if rate and float(rate) > 0:
+                        normalized["material_rate"] = float(rate)
+                        break
+
+        # --- If quantity still missing, try to extract from material list ---
+        if not normalized.get("quantity") and isinstance(raw_material, list):
+            for entry in raw_material:
+                if isinstance(entry, dict):
+                    qty = entry.get("QUANTITY") or entry.get("quantity")
+                    if qty is not None:
+                        try:
+                            q = int(float(qty))
+                            if q > 0:
+                                normalized["quantity"] = q
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
         return normalized
+
+    def _extract_material_name(self, raw_material: Any) -> str | None:
+        """Extract a single material name from various LLM output formats."""
+        if raw_material is None:
+            return None
+
+        # Simple string: "CRCA" or "10 MM E 46"
+        if isinstance(raw_material, str):
+            stripped = raw_material.strip()
+            # Check if it looks like a stringified Python list: "[{...}]"
+            if stripped.startswith("[") and "MATERIAL" in stripped.upper():
+                # Try to extract the material name via regex
+                mat_match = re.search(
+                    r"['\"]MATERIAL['\"]\s*:\s*['\"]([^'\"]+)['\"]",
+                    stripped, re.IGNORECASE
+                )
+                if mat_match:
+                    return self._normalize_material(mat_match.group(1))
+            return self._normalize_material(stripped)
+
+        # List of dicts: [{"MATERIAL": "10 MM E 46", ...}, ...]
+        if isinstance(raw_material, list) and raw_material:
+            first = raw_material[0]
+            if isinstance(first, dict):
+                name = first.get("MATERIAL") or first.get("material") or first.get("type")
+                if name:
+                    return self._normalize_material(str(name))
+            if isinstance(first, str):
+                return self._normalize_material(first)
+
+        return self._normalize_material(raw_material)
+
+    def _postprocess_from_process_info(self, normalized: dict[str, Any]) -> None:
+        """Fill missing cost component fields by matching process_information line items."""
+        processes = normalized.get("process_information")
+        if not processes or not isinstance(processes, list):
+            return
+
+        # Mapping: regex pattern on process name -> target field name
+        COST_FIELD_PATTERNS = [
+            (r"NET\s*MATL|R\.?\s*M\.?\s*COST|RAW\s*MATERIAL\s*COST", "raw_material_cost"),
+            (r"TOTAL\s*CON\.?\s*COST|CONVERSION\s*COST", "conversion_cost"),
+            (r"OVERHEAD", "overhead_cost"),
+            (r"I\.?C\.?C", "icc_cost"),
+            (r"REJECTION\b(?!.*RECOVERY)", "rejection_cost"),
+            (r"PROFIT", "profit"),
+            (r"PACKING", "packing_cost"),
+            (r"TRANSPORT", "transport_cost"),
+        ]
+        COATING_PATTERNS = [
+            r"POWDER\s*COAT", r"SHOT\s*BLAST", r"PRIMER",
+            r"SURFACE\s*PROTECTION", r"ZINC\s*PLAT", r"PAINT",
+        ]
+
+        coating_sum = 0.0
+        has_coating = False
+
+        for item in processes:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("process") or "").upper()
+            cost = item.get("cost", 0)
+            try:
+                cost = float(cost)
+            except (ValueError, TypeError):
+                continue
+
+            # Check coating patterns first
+            for pattern in COATING_PATTERNS:
+                if re.search(pattern, name, re.IGNORECASE):
+                    if cost > 0:
+                        coating_sum += cost
+                        has_coating = True
+                    # Also set coating type if not set
+                    if not normalized.get("coating"):
+                        if "POWDER" in name:
+                            normalized["coating"] = "POWDER COATING"
+                        elif "ZINC" in name:
+                            normalized["coating"] = "ZINC PLATING"
+                        elif "PAINT" in name:
+                            normalized["coating"] = "PAINTING"
+                        else:
+                            normalized["coating"] = "SURFACE PROTECTION"
+                    break
+
+            # Check cost field patterns
+            for pattern, field in COST_FIELD_PATTERNS:
+                if re.search(pattern, name, re.IGNORECASE):
+                    if not normalized.get(field) and cost > 0:
+                        normalized[field] = cost
+                    break
+
+        # Set coating_cost from summed coating items
+        if has_coating and not normalized.get("coating_cost"):
+            normalized["coating_cost"] = round(coating_sum, 2)
+
+        # Extract total_cost from the last "TOTAL" entry
+        if not normalized.get("total_cost"):
+            for item in reversed(processes):
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("process") or "").upper().strip()
+                if name == "TOTAL" or name.startswith("TOTAL"):
+                    cost = item.get("cost", 0)
+                    try:
+                        cost = float(cost)
+                        if cost > 0:
+                            normalized["total_cost"] = cost
+                            break
+                    except (ValueError, TypeError):
+                        continue
 
     def _normalize_header(self, header: Any) -> str:
         return str(header).strip() if header is not None else ""
@@ -932,6 +1145,165 @@ class SupplierNegotiationService:
             "variance": variance,
             "recommendation": self._recommendation(extracted_data),
         }
+
+    # ─── Sheet Utilization Optimization ───────────────────────────────────
+
+    def _validate_sheet_optimization(
+        self, extracted_data: dict[str, Any], includes_cutting_allowance: bool = True
+    ) -> dict[str, Any]:
+        """Calculate sheet utilization for all approved sheet sizes.
+
+        Uses the user-specified formula:
+          effective_length = part_length + 1.5 * thickness
+          effective_width  = part_width  + 1.5 * thickness
+        when cutting allowance is NOT already included.
+        """
+        part_length = float(
+            extracted_data.get("part_length")
+            or extracted_data.get("length")
+            or 0
+        )
+        part_width = float(
+            extracted_data.get("part_width")
+            or extracted_data.get("width")
+            or 0
+        )
+        thickness = float(
+            extracted_data.get("part_thickness")
+            or extracted_data.get("sheet_thickness")
+            or extracted_data.get("thickness")
+            or 0
+        )
+
+        if part_length <= 0 or part_width <= 0 or thickness <= 0:
+            return {
+                "optimal": None,
+                "message": "Part dimensions or thickness missing.",
+                "all_options": [],
+            }
+
+        # Apply cutting/shearing allowance if NOT already included
+        if not includes_cutting_allowance:
+            effective_length = part_length + 1.5 * thickness
+            effective_width = part_width + 1.5 * thickness
+        else:
+            effective_length = part_length
+            effective_width = part_width
+
+        max_pieces = 0
+        selected_sheet = (0, 0)
+        all_options = []
+
+        for sheet_l, sheet_w in self.APPROVED_SHEET_SIZES:
+            # Normal orientation
+            pieces_normal = (
+                math.floor(sheet_l / effective_length)
+                * math.floor(sheet_w / effective_width)
+            )
+            # Rotated orientation
+            pieces_rotated = (
+                math.floor(sheet_l / effective_width)
+                * math.floor(sheet_w / effective_length)
+            )
+            pieces = max(pieces_normal, pieces_rotated)
+
+            if pieces > 0:
+                weight_per_part = round(
+                    (sheet_l * sheet_w * thickness * 7.85) / (1e6 * pieces), 2
+                )
+            else:
+                weight_per_part = 0
+
+            all_options.append({
+                "sheet_size": f"{sheet_l} \u00d7 {sheet_w}",
+                "sheet_length": sheet_l,
+                "sheet_width": sheet_w,
+                "num_parts": pieces,
+                "weight_per_part": weight_per_part,
+            })
+
+            if pieces > max_pieces:
+                max_pieces = pieces
+                selected_sheet = (sheet_l, sheet_w)
+
+        # Sort by num_parts descending (most pieces = most efficient)
+        all_options.sort(key=lambda x: -x["num_parts"])
+
+        if max_pieces <= 0:
+            return {
+                "optimal": None,
+                "message": "No approved sheet size can fit the part.",
+                "all_options": all_options,
+            }
+
+        best_weight = round(
+            (selected_sheet[0] * selected_sheet[1] * thickness * 7.85)
+            / (1e6 * max_pieces),
+            2,
+        )
+
+        return {
+            "all_options": all_options,
+            "best_option": {
+                "sheet_size": f"{selected_sheet[0]} \u00d7 {selected_sheet[1]}",
+                "sheet_length": selected_sheet[0],
+                "sheet_width": selected_sheet[1],
+                "num_parts": max_pieces,
+                "weight_per_part": best_weight,
+            },
+            "effective_part_length": round(effective_length, 2),
+            "effective_part_width": round(effective_width, 2),
+        }
+
+    def check_sheet_optimization(
+        self,
+        employee_id: str,
+        part_number: str,
+        includes_cutting_allowance: bool = True,
+    ) -> dict[str, Any]:
+        """Public entry point: validate the supplier's sheet choice against
+        all approved sheet sizes and return the optimization result."""
+        session = self._ensure_session(employee_id, part_number)
+        data = session["extracted_data"]
+
+        result = self._validate_sheet_optimization(data, includes_cutting_allowance)
+
+        # Early exit if dimensions missing
+        if result.get("optimal") is None and "message" in result:
+            session["sheet_optimization"] = result
+            self._persist_session(session)
+            return result
+
+        best = result["best_option"]
+        current_sheet_l = float(data.get("sheet_length") or 0)
+        current_sheet_w = float(data.get("sheet_width") or 0)
+        current_sheet = f"{current_sheet_l:.0f} \u00d7 {current_sheet_w:.0f}"
+
+        # Compare current sheet to optimal (either orientation)
+        is_optimal = (
+            (current_sheet_l == best["sheet_length"] and current_sheet_w == best["sheet_width"])
+            or (current_sheet_l == best["sheet_width"] and current_sheet_w == best["sheet_length"])
+        )
+
+        result["current_sheet"] = current_sheet
+        result["is_optimal"] = is_optimal
+        result["includes_cutting_allowance"] = includes_cutting_allowance
+
+        if not is_optimal:
+            result["recommendation"] = (
+                f"The selected sheet size ({current_sheet}) is not optimal. "
+                f"Recommended sheet size: {best['sheet_size']}. "
+                f"Please revise the costing sheet using the recommended sheet size."
+            )
+
+        # Store effective (allowance-adjusted) part dims back into session
+        if not includes_cutting_allowance:
+            data["effective_part_length"] = result["effective_part_length"]
+            data["effective_part_width"] = result["effective_part_width"]
+
+        session["sheet_optimization"] = result
+        self._persist_session(session)
+        return result
 
         
     def reject_offer(

@@ -142,3 +142,14 @@ export async function rejectSession(employeeId, partNumber, reason) {
   if (!res.ok) throw new Error(`Rejection failed: ${res.statusText}`);
   return res.json();
 }
+
+export async function checkSheetOptimization(employeeId, partNumber, includesCuttingAllowance = true) {
+  const params = new URLSearchParams({
+    employee_id: employeeId,
+    part_number: partNumber,
+    includes_cutting_allowance: includesCuttingAllowance,
+  });
+  const res = await apiFetch(`/supplier/session/check-sheet-optimization?${params}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Sheet optimization check failed: ${res.statusText}`);
+  return res.json();
+}

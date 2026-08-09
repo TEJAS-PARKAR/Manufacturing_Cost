@@ -16,6 +16,13 @@ const REJECT_REASONS = [
   'Other',
 ];
 
+/** Round display value to 2dp */
+function fmt(v) {
+  if (v === null || v === undefined || v === '' || v === '—' || v === 0) return '—';
+  const n = Number(v);
+  return isNaN(n) ? String(v) : n.toFixed(2);
+}
+
 export default function TataPortal({ employeeId, partNumber }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -96,6 +103,7 @@ export default function TataPortal({ employeeId, partNumber }) {
         const extracted = session.extracted_data || {};
         const benchmark = dashboard.benchmark_comparison || {};
         const negotiation = session.negotiation || {};
+        const sheetOpt = session.sheet_optimization || {};
         const status = session.status || 'active';
 
         return (
@@ -111,11 +119,11 @@ export default function TataPortal({ employeeId, partNumber }) {
 
             <div className="metric-grid">
               <MetricCard label="Part Number" value={session.part_number || '—'} />
-              <MetricCard label="Material" value={extracted.material || '—'} />
-              <MetricCard label="Material Rate" value={`₹ ${extracted.material_rate || '—'}`} variant="accent" />
+              <MetricCard label="Material No." value={extracted.material || '—'} />
+              <MetricCard label="Material Rate" value={`₹ ${fmt(extracted.material_rate)}`} variant="accent" />
               <MetricCard
                 label="Total Cost"
-                value={extracted.total_cost ? `₹ ${Math.round(extracted.total_cost * 100) / 100}` : '—'}
+                value={extracted.total_cost ? `₹ ${fmt(extracted.total_cost)}` : '—'}
                 variant="success"
               />
             </div>
@@ -126,6 +134,63 @@ export default function TataPortal({ employeeId, partNumber }) {
               </div>
             ) : (
               <div className="alert alert-success">All mandatory fields available.</div>
+            )}
+
+            {/* ── Sheet Optimization Result (if available) ── */}
+            {sheetOpt && sheetOpt.is_optimal !== undefined && (
+              <>
+                <hr className="section-divider" />
+                <h3 className="section-heading">Sheet Utilization Validation</h3>
+                {sheetOpt.is_optimal === true && (
+                  <div className="sheet-opt-banner optimal">
+                    <span className="sheet-opt-icon">✅</span>
+                    <div>
+                      <strong>Sheet size is optimal.</strong>
+                      <p>Current sheet ({sheetOpt.current_sheet}) provides the best utilization.</p>
+                    </div>
+                  </div>
+                )}
+                {sheetOpt.is_optimal === false && (
+                  <div className="sheet-opt-banner not-optimal">
+                    <span className="sheet-opt-icon">⚠️</span>
+                    <div>
+                      <strong>Sheet size is NOT optimal.</strong>
+                      <p>{sheetOpt.recommendation}</p>
+                    </div>
+                  </div>
+                )}
+
+                {sheetOpt.all_options && sheetOpt.all_options.length > 0 && (
+                  <table className="sheet-util-table">
+                    <thead>
+                      <tr>
+                        <th>Sheet Size (mm)</th>
+                        <th>Parts / Sheet</th>
+                        <th>Weight / Part (kg)</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sheetOpt.all_options.map((opt) => {
+                        const isBest = sheetOpt.best_option &&
+                          opt.sheet_size === sheetOpt.best_option.sheet_size;
+                        const isCurrent = opt.sheet_size === sheetOpt.current_sheet;
+                        return (
+                          <tr key={opt.sheet_size} className={isBest ? 'best-row' : ''}>
+                            <td>{opt.sheet_size}</td>
+                            <td>{opt.num_parts}</td>
+                            <td>{fmt(opt.weight_per_part)}</td>
+                            <td>
+                              {isBest && <span className="badge badge-optimal">✓ Optimal</span>}
+                              {isCurrent && !isBest && <span className="badge badge-current">Current</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </>
             )}
 
             {/* ── Cost chart + summary ── */}
@@ -146,16 +211,16 @@ export default function TataPortal({ employeeId, partNumber }) {
             <div className="metric-grid-3">
               <MetricCard
                 label="Supplier Rate"
-                value={`₹ ${benchmark.supplier_material_rate || 0}`}
+                value={`₹ ${fmt(benchmark.supplier_material_rate)}`}
               />
               <MetricCard
                 label="Benchmark Rate"
-                value={`₹ ${benchmark.internal_benchmark_rate || 0}`}
+                value={`₹ ${fmt(benchmark.internal_benchmark_rate)}`}
                 variant="accent"
               />
               <MetricCard
                 label="Variance"
-                value={`₹ ${benchmark.variance || 0}`}
+                value={`₹ ${fmt(benchmark.variance)}`}
                 variant={(benchmark.variance || 0) <= 0 ? 'success' : 'danger'}
               />
             </div>
@@ -178,16 +243,16 @@ export default function TataPortal({ employeeId, partNumber }) {
             <div className="metric-grid-3">
               <MetricCard
                 label="Supplier Quote"
-                value={`₹ ${negotiation.supplier_quote || 0}`}
+                value={`₹ ${fmt(negotiation.supplier_quote)}`}
               />
               <MetricCard
                 label="Expected Cost"
-                value={`₹ ${negotiation.predicted_cost || 0}`}
+                value={`₹ ${fmt(negotiation.predicted_cost)}`}
                 variant="accent"
               />
               <MetricCard
                 label="Variance %"
-                value={`${negotiation.variance || 0}%`}
+                value={`${fmt(negotiation.variance)}%`}
                 variant={(negotiation.variance || 0) <= 5 ? 'success' : 'danger'}
               />
             </div>
@@ -199,7 +264,7 @@ export default function TataPortal({ employeeId, partNumber }) {
                 : negotiation.ai_recommendation || '—'}
             </div>
             <div className="alert alert-success">
-              <strong>Suggested Counter Offer:</strong> ₹{negotiation.counter_offer || '—'}
+              <strong>Suggested Counter Offer:</strong> ₹{fmt(negotiation.counter_offer)}
             </div>
 
             <hr className="section-divider" />

@@ -172,6 +172,22 @@ def negotiate(payload: SupplierMessageRequest,
     require_own_or_tata(identity, payload.employee_id)
     return negotiation_service.run_negotiation(payload.employee_id, payload.part_number, payload.message)
 
+
+@router.post("/supplier/session/check-sheet-optimization",
+             responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+def check_sheet_optimization(employee_id: str, part_number: str,
+                              includes_cutting_allowance: bool = True,
+                              identity: dict = Depends(get_identity)):
+    require_own_or_tata(identity, employee_id)
+    try:
+        return negotiation_service.check_sheet_optimization(
+            employee_id, part_number, includes_cutting_allowance
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
 @router.get("/supplier/session/review",
             responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
 def get_supplier_review_dashboard(employee_id: str, part_number: str,

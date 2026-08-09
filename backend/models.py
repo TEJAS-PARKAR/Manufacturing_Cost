@@ -116,6 +116,7 @@ class SupplierSessionResponse(BaseModel):
     review: Dict[str, Any] = Field(default_factory=dict)
     negotiation: Dict[str, Any] = Field(default_factory=dict)
     revisions: List[Dict[str, Any]] = Field(default_factory=list)
+    sheet_optimization: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SupplierReviewDashboardResponse(BaseModel):
