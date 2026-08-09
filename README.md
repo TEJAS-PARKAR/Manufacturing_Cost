@@ -2,22 +2,25 @@
 
 This repository now supports the requested multi-stage supplier negotiation workflow for Tata Motors procurement teams.
 
-## What the platform now does
+## What the platform does
 
 - Starts or resumes a negotiation session using the supplier employee ID and 12-digit part number.
-- Lets a supplier upload a costing Excel sheet for automated extraction of dimensions, material, material rate, quantity, coating, process information, and weight when available.
+- Lets a supplier upload a costing Excel sheet for automated extraction of **Sheet Dimensions** (Full Sheet Size), **Part Dimensions** (Shear Size), material, material rate, quantity, coating, process information, gross weight, and other cost components.
 - Uses a two-stage Excel pipeline: raw table extraction first, then an interpretation layer for structured cost fields.
 - Supports LLM-assisted extraction through Groq when a Groq API key is configured, with heuristic fallback when it is not.
+- **Sheet Utilization Validation** — before any negotiation begins, validates whether the supplier is using the most efficient sheet size from a predefined list of approved sizes (`1250×2500`, `1500×2500`, `1250×2700`). If the current sheet is not optimal, negotiation is blocked and a recommendation is returned.
+- **Cutting Allowance Confirmation** — asks the user whether extracted part dimensions already include cutting/shearing allowance. If not, applies the formula `effective_dim = dim + 1.5 × thickness` before computing utilization.
 - Flags missing mandatory fields and maintains per-session discussion memory.
-- Stores supplier messages, extracted data, session summaries, and review recommendations by employee ID and part number.
+- Stores supplier messages, extracted data, session summaries, sheet optimization results, and review recommendations by employee ID and part number.
 - Supports separate supplier and Tata Motors workspaces with distinct login credentials.
 - Submits the session for Tata Motors review and enables approval of validated cost inputs.
 - Produces benchmark comparisons and procurement recommendations such as accept, review, or negotiate further.
+- All numeric values (dimensions, weights, costs, variance, counter-offers) are rounded to **2 decimal places** across the entire application.
 
 ## Key backend pieces
 
-- [backend/services/negotiation_service.py](backend/services/negotiation_service.py) handles session memory, Excel intake, raw-table extraction, LLM/heuristic interpretation, summary generation, and review recommendations.
-- [backend/routes/cost_routes.py](backend/routes/cost_routes.py) exposes the supplier session APIs and review/approval endpoints.
+- [backend/services/negotiation_service.py](backend/services/negotiation_service.py) handles session memory, Excel intake, raw-table extraction, LLM/heuristic interpretation, **sheet optimization validation**, summary generation, and review recommendations.
+- [backend/routes/cost_routes.py](backend/routes/cost_routes.py) exposes the supplier session APIs, **sheet optimization check**, and review/approval endpoints.
 - [backend/models.py](backend/models.py) defines the negotiation request and response schemas.
 
 ## Frontend (React + Vite)
@@ -35,10 +38,29 @@ The frontend is a React single-page application built with Vite, located in `fro
 2. Log in with the matching credentials for the selected portal.
 3. Start or resume a supplier session using the employee ID and part number.
 4. Upload the costing Excel file.
-5. The system extracts the raw table and interprets it into structured negotiation fields.
-6. Continue the conversation; the session summary and history are preserved.
-7. Submit the session for review.
-8. Tata Motors users can inspect benchmark recommendations and approve the final validated cost inputs.
+5. The system extracts **Sheet Dimensions** (Full Sheet Size) and **Part Dimensions** (Shear Size) separately, along with all cost components.
+6. The system asks: *"Do the extracted part dimensions already include cutting/shearing allowance?"*
+7. Sheet utilization is validated against approved sheet sizes. If the current sheet is not optimal, negotiation is blocked with a recommendation to revise.
+8. If the sheet is optimal, continue the conversation; the session summary and history are preserved.
+9. Submit the session for review.
+10. Tata Motors users can inspect sheet optimization results, benchmark recommendations, and approve the final validated cost inputs.
+
+### Sheet Optimization Logic
+
+The system calculates how many parts fit on each approved sheet size using:
+
+```
+effective_length = part_length + 1.5 × thickness   (if allowance not included)
+effective_width  = part_width  + 1.5 × thickness    (if allowance not included)
+
+pieces_normal  = floor(sheet_L / eff_L) × floor(sheet_W / eff_W)
+pieces_rotated = floor(sheet_L / eff_W) × floor(sheet_W / eff_L)
+pieces = max(normal, rotated)
+
+weight_per_part = (sheet_L × sheet_W × thickness × 7.85) / (10⁶ × pieces)
+```
+
+The sheet with the **most parts** (lowest weight per part) is selected as optimal. If the supplier's sheet does not match, negotiation is blocked until the costing sheet is revised.
 
 ## Quick start
 
