@@ -135,7 +135,3 @@ VITE_TATA_PASSWORD=tata123
 ```
 
 If a Groq key is not configured, the app will continue to work with its built-in heuristic extraction fallback. If MongoDB is not configured, sessions remain in memory for the current process.
-
-## Production note
-
-The current implementation uses in-memory session storage by default. For production, you can enable MongoDB Atlas persistence and a managed LLM orchestration layer for higher durability and multi-instance support.
