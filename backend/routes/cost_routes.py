@@ -224,6 +224,21 @@ def reject_offer(employee_id: str, part_number: str,
     return negotiation_service.reject_offer(employee_id, part_number, reason)
 
 
+@router.post("/supplier/session/reopen", response_model=SupplierSessionResponse,
+             responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+def reopen_session(employee_id: str, part_number: str,
+                   identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
+    require_own_or_tata(identity, employee_id)
+    try:
+        result = negotiation_service.reopen_after_rejection(employee_id, part_number)
+        return SupplierSessionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+
 @router.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def root() -> dict:
     return {

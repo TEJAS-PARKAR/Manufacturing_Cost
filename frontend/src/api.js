@@ -153,3 +153,10 @@ export async function checkSheetOptimization(employeeId, partNumber, includesCut
   if (!res.ok) throw new Error(`Sheet optimization check failed: ${res.statusText}`);
   return res.json();
 }
+
+export async function reopenSession(employeeId, partNumber) {
+  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+  const res = await apiFetch(`/supplier/session/reopen?${params}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Reopen session failed: ${res.statusText}`);
+  return res.json();
+}

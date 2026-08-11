@@ -9,11 +9,13 @@ This repository now supports the requested multi-stage supplier negotiation work
 - Uses a two-stage Excel pipeline: raw table extraction first, then an interpretation layer for structured cost fields.
 - Supports LLM-assisted extraction through Groq when a Groq API key is configured, with heuristic fallback when it is not.
 - **Sheet Utilization Validation** — before any negotiation begins, validates whether the supplier is using the most efficient sheet size from a predefined list of approved sizes (`1250×2500`, `1500×2500`, `1250×2700`). If the current sheet is not optimal, negotiation is blocked and a recommendation is returned.
-- **Cutting Allowance Confirmation** — asks the user whether extracted part dimensions already include cutting/shearing allowance. If not, applies the formula `effective_dim = dim + 1.5 × thickness` before computing utilization.
+- **Cutting Allowance Confirmation** — asks the user whether extracted part dimensions already include cutting/shearing allowance. If not, applies the formula `effective_dim = dim + 1.5 × thickness` before computing utilization. **Negotiation chat is blocked until this question is answered.**
+- **Server-Side Negotiation Gating** — the negotiation chatbot is locked server-side until: (1) a costing sheet has been uploaded, (2) the cutting allowance question has been answered, and (3) sheet size has been validated as optimal. This applies even if the session is resumed.
 - Flags missing mandatory fields and maintains per-session discussion memory.
 - Stores supplier messages, extracted data, session summaries, sheet optimization results, and review recommendations by employee ID and part number.
 - Supports separate supplier and Tata Motors workspaces with distinct login credentials.
 - Submits the session for Tata Motors review and enables approval of validated cost inputs.
+- **Rejection Re-Entry** — when Tata Motors rejects a quotation, the rejection reason is stored and shown to the supplier. The supplier can reopen the session for re-negotiation, which resets the validation flow and requires a revised costing sheet.
 - Produces benchmark comparisons and procurement recommendations such as accept, review, or negotiate further.
 - All numeric values (dimensions, weights, costs, variance, counter-offers) are rounded to **2 decimal places** across the entire application.
 
@@ -39,11 +41,12 @@ The frontend is a React single-page application built with Vite, located in `fro
 3. Start or resume a supplier session using the employee ID and part number.
 4. Upload the costing Excel file.
 5. The system extracts **Sheet Dimensions** (Full Sheet Size) and **Part Dimensions** (Shear Size) separately, along with all cost components.
-6. The system asks: *"Do the extracted part dimensions already include cutting/shearing allowance?"*
+6. The system asks: *"Do the extracted part dimensions already include cutting/shearing allowance?"* — **negotiation chat remains locked until this is answered.**
 7. Sheet utilization is validated against approved sheet sizes. If the current sheet is not optimal, negotiation is blocked with a recommendation to revise.
 8. If the sheet is optimal, continue the conversation; the session summary and history are preserved.
 9. Submit the session for review.
-10. Tata Motors users can inspect sheet optimization results, benchmark recommendations, and approve the final validated cost inputs.
+10. Tata Motors users can inspect sheet optimization results, benchmark recommendations, and approve or reject the final validated cost inputs.
+11. **If rejected**, the supplier sees the rejection reason and can reopen the session. Reopening resets the validation flow and requires a revised costing sheet upload.
 
 ### Sheet Optimization Logic
 

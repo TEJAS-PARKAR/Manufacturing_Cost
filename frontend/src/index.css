@@ -1130,3 +1130,291 @@ html, body {
     transform: translateY(0);
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Supplier Portal — Enhanced Negotiation Flow Styles
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Fade-in animation class ── */
+.fade-in {
+  animation: fadeSlideIn 0.4s ease-out;
+}
+
+/* ── Supplier portal animated container ── */
+.supplier-portal-animated > * {
+  animation: fadeSlideIn 0.35s ease-out both;
+}
+
+.supplier-portal-animated > *:nth-child(1) { animation-delay: 0ms; }
+.supplier-portal-animated > *:nth-child(2) { animation-delay: 40ms; }
+.supplier-portal-animated > *:nth-child(3) { animation-delay: 80ms; }
+.supplier-portal-animated > *:nth-child(4) { animation-delay: 120ms; }
+.supplier-portal-animated > *:nth-child(5) { animation-delay: 160ms; }
+.supplier-portal-animated > *:nth-child(n+6) { animation-delay: 200ms; }
+
+/* ── Workflow Gate Indicator ── */
+.workflow-gate {
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  border: 1px solid #e9ecef;
+  border-radius: 14px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1.2rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.workflow-gate-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6C757D;
+  margin-bottom: 1rem;
+}
+
+.workflow-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: relative;
+}
+
+.workflow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.workflow-step-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  transition: all 0.3s ease;
+  border: 2px solid #dee2e6;
+  background: #f8f9fa;
+  color: #adb5bd;
+}
+
+.workflow-step.completed .workflow-step-icon {
+  background: linear-gradient(135deg, #00A86B, #28a745);
+  border-color: #00A86B;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 3px 10px rgba(0, 168, 107, 0.3);
+}
+
+.workflow-step.current .workflow-step-icon {
+  background: linear-gradient(135deg, #1B3A5C, #274C77);
+  border-color: #1B3A5C;
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(27, 58, 92, 0.35);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.workflow-step.pending .workflow-step-icon {
+  background: #f0f2f5;
+  border-color: #dee2e6;
+  color: #ccc;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 3px 12px rgba(27, 58, 92, 0.35); }
+  50% { box-shadow: 0 3px 20px rgba(27, 58, 92, 0.55); }
+}
+
+.workflow-step-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #adb5bd;
+  text-align: center;
+  transition: color 0.3s ease;
+}
+
+.workflow-step.completed .workflow-step-label {
+  color: #00A86B;
+}
+
+.workflow-step.current .workflow-step-label {
+  color: #1B3A5C;
+  font-weight: 700;
+}
+
+.workflow-step-connector {
+  position: absolute;
+  top: 20px;
+  left: calc(50% + 24px);
+  width: calc(100% - 48px);
+  height: 3px;
+  background: #dee2e6;
+  border-radius: 2px;
+  z-index: 0;
+  transition: background 0.4s ease;
+}
+
+.workflow-step-connector.completed {
+  background: linear-gradient(90deg, #00A86B, #28a745);
+}
+
+/* ── Negotiation Gate Banner ── */
+.negotiation-gate-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border: 1px solid #ffcc80;
+  animation: fadeSlideIn 0.4s ease-out;
+}
+
+.negotiation-gate-banner.rejected {
+  background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 100%);
+  border-color: #ef9a9a;
+}
+
+.gate-banner-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.gate-banner-content strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #e65100;
+  margin-bottom: 0.3rem;
+}
+
+.negotiation-gate-banner.rejected .gate-banner-content strong {
+  color: #c62828;
+}
+
+.gate-banner-content p {
+  font-size: 0.85rem;
+  color: #5d4037;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.negotiation-gate-banner.rejected .gate-banner-content p {
+  color: #4a148c;
+}
+
+/* ── Rejection Section ── */
+.rejection-section {
+  margin-bottom: 1.2rem;
+}
+
+.rejection-remark-card {
+  background: linear-gradient(135deg, #fff5f5 0%, #fee2e2 100%);
+  border: 1px solid #fca5a5;
+  border-radius: 12px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.rejection-remark-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.rejection-remark-icon {
+  font-size: 1.2rem;
+}
+
+.rejection-remark-header strong {
+  font-size: 0.9rem;
+  color: #991b1b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rejection-remark-text {
+  font-size: 0.95rem;
+  color: #7f1d1d;
+  line-height: 1.5;
+  margin: 0;
+  padding-left: 1.8rem;
+  font-style: italic;
+}
+
+/* ── Reopen Button ── */
+.btn-reopen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 3px 12px rgba(124, 58, 237, 0.3);
+}
+
+.btn-reopen:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+  background: linear-gradient(135deg, #6d28d9, #7c3aed);
+}
+
+.btn-reopen:active {
+  transform: scale(0.97);
+}
+
+.btn-reopen:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Chat disabled state ── */
+.chat-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  position: relative;
+}
+
+.chat-disabled input {
+  background: #f0f2f5 !important;
+  cursor: not-allowed;
+}
+
+.chat-disabled button {
+  background: #adb5bd !important;
+  cursor: not-allowed;
+}
+
+/* ── Enhanced chat input bar transitions ── */
+.chat-input-bar {
+  transition: opacity 0.3s ease, transform 0.2s ease;
+}
+
+.chat-input-bar input {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+}
+
+.chat-input-bar button {
+  transition: all 0.25s ease;
+}
+
+.chat-input-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

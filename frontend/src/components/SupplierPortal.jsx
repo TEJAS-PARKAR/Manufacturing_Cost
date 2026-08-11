@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import StatusBadge from './StatusBadge';
 import Stepper from './Stepper';
 import MetricCard from './MetricCard';
@@ -15,10 +15,30 @@ function fmt(v) {
   return isNaN(n) ? String(v) : n.toFixed(2);
 }
 
+/** Workflow steps for the gated flow */
+const WORKFLOW_STEPS = [
+  { key: 'upload', label: 'Upload Costing Sheet', icon: '📄' },
+  { key: 'allowance', label: 'Cutting Allowance', icon: '✂️' },
+  { key: 'validation', label: 'Sheet Validation', icon: '✅' },
+  { key: 'negotiate', label: 'Negotiate', icon: '💬' },
+];
+
+function getWorkflowStep(session, showAllowancePrompt) {
+  const extracted = session.extracted_data || {};
+  const sheetOpt = session.sheet_optimization || {};
+  const awaiting = session.awaiting_allowance_response;
+
+  if (!extracted.total_cost) return 'upload';
+  if (awaiting || showAllowancePrompt) return 'allowance';
+  if (!sheetOpt.is_optimal && sheetOpt.is_optimal !== true) return 'validation';
+  return 'negotiate';
+}
+
 export default function SupplierPortal({ session, setSession, employeeId, partNumber }) {
   const [uploading, setUploading] = useState(false);
   const [negotiating, setNegotiating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [alert, setAlert] = useState(null);
 
@@ -29,9 +49,44 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
   const extracted = session.extracted_data || {};
   const status = session.status || 'active';
+  const sheetOpt = session.sheet_optimization || {};
 
-  // Determine if negotiation should be blocked
-  const sheetBlocked = sheetOptResult && sheetOptResult.is_optimal === false;
+  // ── Restore state from session on mount / session change ──
+  useEffect(() => {
+    // Restore allowance prompt if session says we're awaiting
+    if (session.awaiting_allowance_response && extracted.total_cost) {
+      setShowAllowancePrompt(true);
+    } else {
+      setShowAllowancePrompt(false);
+    }
+    // Restore sheet optimization result from session
+    if (sheetOpt && sheetOpt.is_optimal !== undefined) {
+      setSheetOptResult(sheetOpt);
+    } else {
+      setSheetOptResult(null);
+    }
+  }, [session.session_key, session.awaiting_allowance_response, sheetOpt.is_optimal]);
+
+  // ── Derive blocking state from SESSION data (not just local state) ──
+  const needsExcelUpload = !extracted.total_cost;
+  const awaitingAllowance = session.awaiting_allowance_response === true;
+  const sheetNotValidated = !sheetOpt || sheetOpt.is_optimal === undefined;
+  const sheetNotOptimal = sheetOpt && sheetOpt.is_optimal === false;
+  const isRejected = status === 'rejected';
+
+  const chatBlocked = needsExcelUpload || awaitingAllowance || (extracted.total_cost && sheetNotValidated) || sheetNotOptimal || isRejected;
+
+  // Determine which blocking message to show
+  const getBlockingMessage = () => {
+    if (isRejected) return { icon: '🚫', text: 'Session was rejected by Tata Motors. Please reopen the session to continue negotiation.' };
+    if (needsExcelUpload) return { icon: '📄', text: 'Please upload a costing Excel sheet to begin the negotiation process.' };
+    if (awaitingAllowance) return { icon: '✂️', text: 'Please answer the cutting allowance question above before proceeding.' };
+    if (extracted.total_cost && sheetNotValidated) return { icon: '📋', text: 'Sheet optimization must be validated. Please answer the cutting allowance question.' };
+    if (sheetNotOptimal) return { icon: '⚠️', text: 'Sheet size is not optimal. Please revise the costing sheet using the recommended sheet size.' };
+    return null;
+  };
+
+  const currentStep = getWorkflowStep(session, showAllowancePrompt);
 
   // ── Excel upload handler ──
   const handleProcessExcel = async (file) => {
@@ -101,8 +156,26 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     }
   };
 
+  // ── Reopen after rejection ──
+  const handleReopenSession = async () => {
+    setReopening(true);
+    setAlert(null);
+    try {
+      const result = await api.reopenSession(employeeId, partNumber);
+      setSession(result);
+      setSheetOptResult(null);
+      setAlert({ type: 'success', message: 'Session reopened for re-negotiation. Please upload a revised costing sheet.' });
+    } catch (err) {
+      setAlert({ type: 'error', message: `Reopen failed: ${err.message}` });
+    } finally {
+      setReopening(false);
+    }
+  };
+
+  const blockingMsg = getBlockingMessage();
+
   return (
-    <div>
+    <div className="supplier-portal-animated">
       {/* ── Session Overview ── */}
       <div className="session-overview-header">
         <h3>Session Overview</h3>
@@ -129,16 +202,45 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
         <div className="alert alert-success">All mandatory fields available.</div>
       )}
 
-      {alert && <div className={`alert alert-${alert.type}`}>{alert.message}</div>}
+      {alert && <div className={`alert alert-${alert.type} fade-in`}>{alert.message}</div>}
 
       <hr className="section-divider" />
 
+      {/* ── Workflow Gate Indicator ── */}
+      {status === 'active' && (
+        <div className="workflow-gate">
+          <h4 className="workflow-gate-title">Negotiation Workflow</h4>
+          <div className="workflow-steps">
+            {WORKFLOW_STEPS.map((step, idx) => {
+              const stepIdx = WORKFLOW_STEPS.findIndex(s => s.key === currentStep);
+              const thisIdx = idx;
+              const isCompleted = thisIdx < stepIdx;
+              const isCurrent = step.key === currentStep;
+              const isPending = thisIdx > stepIdx;
+              return (
+                <div key={step.key} className={`workflow-step ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''} ${isPending ? 'pending' : ''}`}>
+                  <div className="workflow-step-icon">
+                    {isCompleted ? '✓' : step.icon}
+                  </div>
+                  <span className="workflow-step-label">{step.label}</span>
+                  {idx < WORKFLOW_STEPS.length - 1 && (
+                    <div className={`workflow-step-connector ${isCompleted ? 'completed' : ''}`} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Excel Upload ── */}
-      <ExcelUpload onProcess={handleProcessExcel} loading={uploading} />
+      {(status === 'active' || status === 'rejected') && (
+        <ExcelUpload onProcess={handleProcessExcel} loading={uploading} />
+      )}
 
       {/* ── Cutting Allowance Question ── */}
       {showAllowancePrompt && (
-        <div className="allowance-prompt">
+        <div className="allowance-prompt fade-in">
           <div className="allowance-prompt-icon">✂️</div>
           <h4>Cutting / Shearing Allowance</h4>
           <p>Do the extracted part dimensions already include cutting/shearing allowance?</p>
@@ -161,7 +263,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
       {/* ── Sheet Optimization Loading ── */}
       {checkingSheet && (
-        <div className="alert alert-info">
+        <div className="alert alert-info fade-in">
           <span className="spinner-overlay">
             <span className="spinner" />
             Validating sheet utilization across approved sizes…
@@ -171,7 +273,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
       {/* ── Sheet Optimization Result ── */}
       {sheetOptResult && !checkingSheet && (
-        <div className="sheet-opt-section">
+        <div className="sheet-opt-section fade-in">
           <h3 className="section-heading">Sheet Utilization Validation</h3>
 
           {sheetOptResult.is_optimal === true && (
@@ -248,25 +350,62 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
       {/* ── Negotiation Chat ── */}
       <h3 className="section-heading">Negotiation Chat</h3>
 
-      {sheetBlocked && (
-        <div className="alert alert-error">
-          <strong>Negotiation blocked:</strong> The current sheet size is not optimal.
-          Please revise the costing sheet using the recommended sheet size before negotiating.
+      {/* ── Blocking message with context ── */}
+      {chatBlocked && blockingMsg && (
+        <div className={`negotiation-gate-banner fade-in ${isRejected ? 'rejected' : ''}`}>
+          <span className="gate-banner-icon">{blockingMsg.icon}</span>
+          <div className="gate-banner-content">
+            <strong>{isRejected ? 'Session Rejected' : 'Negotiation Locked'}</strong>
+            <p>{blockingMsg.text}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rejection details + Reopen button ── */}
+      {isRejected && (
+        <div className="rejection-section fade-in">
+          {session.rejection_remark && (
+            <div className="rejection-remark-card">
+              <div className="rejection-remark-header">
+                <span className="rejection-remark-icon">📋</span>
+                <strong>Rejection Reason</strong>
+              </div>
+              <p className="rejection-remark-text">{session.rejection_remark}</p>
+            </div>
+          )}
+          <button
+            className="btn-reopen"
+            onClick={handleReopenSession}
+            disabled={reopening}
+          >
+            {reopening ? (
+              <span className="spinner-overlay">
+                <span className="spinner" />
+                Reopening…
+              </span>
+            ) : (
+              <>🔄 Reopen for Re-negotiation</>
+            )}
+          </button>
         </div>
       )}
 
       <ChatHistory history={session.history || []} currentUserRole="supplier" />
 
-      <form className="chat-input-bar" onSubmit={handleSendMessage}>
+      <form className={`chat-input-bar ${chatBlocked ? 'chat-disabled' : ''}`} onSubmit={handleSendMessage}>
         <input
           type="text"
-          placeholder="Enter supplier demand..."
+          placeholder={chatBlocked ? 'Complete the workflow steps above to unlock chat...' : 'Enter supplier demand...'}
           value={chatMessage}
           onChange={(e) => setChatMessage(e.target.value)}
-          disabled={negotiating || sheetBlocked}
+          disabled={negotiating || chatBlocked}
         />
-        <button type="submit" disabled={negotiating || !chatMessage.trim() || sheetBlocked}>
-          {negotiating ? '…' : 'Send'}
+        <button type="submit" disabled={negotiating || !chatMessage.trim() || chatBlocked}>
+          {negotiating ? (
+            <span className="spinner-overlay">
+              <span className="spinner" />
+            </span>
+          ) : 'Send'}
         </button>
       </form>
 
@@ -274,7 +413,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
       {/* ── Submit for review ── */}
       {status === 'active' && (
-        <div>
+        <div className="fade-in">
           <h3 className="section-heading">Submit for Review</h3>
           <div className="alert alert-info">
             Once submitted, your session will be visible to the Tata Motors review dashboard.
@@ -282,7 +421,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
           <button
             className="btn-primary"
             onClick={handleSubmitReview}
-            disabled={submitting || sheetBlocked}
+            disabled={submitting || chatBlocked}
           >
             {submitting ? (
               <span className="spinner-overlay">
@@ -297,20 +436,14 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
       )}
 
       {status === 'submitted_for_review' && (
-        <div className="alert alert-info">
+        <div className="alert alert-info fade-in">
           This session has been submitted for Tata Motors review. Awaiting decision.
         </div>
       )}
 
       {status === 'approved' && (
-        <div className="alert alert-success">
+        <div className="alert alert-success fade-in">
           This session has been <strong>approved</strong> by Tata Motors.
-        </div>
-      )}
-
-      {status === 'rejected' && (
-        <div className="alert alert-error">
-          This session has been <strong>rejected</strong> by Tata Motors.
         </div>
       )}
     </div>

@@ -201,6 +201,10 @@ class SupplierNegotiationService:
                 session["extracted_data"]
             )
         )
+        # Mark that the cutting allowance question needs to be answered
+        session["awaiting_allowance_response"] = True
+        # Clear previous sheet optimization so supplier must re-validate
+        session["sheet_optimization"] = {}
         logger.debug("Extracted data keys after update: %s", list(session["extracted_data"].keys()))
         self._persist_session(session)
         return self._serialize_session(session)
@@ -339,7 +343,15 @@ class SupplierNegotiationService:
             "sheet_optimization": session.get(
                 "sheet_optimization",
                 {}
-            )
+            ),
+            "awaiting_allowance_response": session.get(
+                "awaiting_allowance_response",
+                False
+            ),
+            "rejection_remark": session.get(
+                "rejection_remark",
+                None
+            ),
         }
 
     def _storage_key(self, employee_id: str, part_number: str) -> str:
@@ -1302,6 +1314,8 @@ CRITICAL RULES:
             data["effective_part_width"] = result["effective_part_width"]
 
         session["sheet_optimization"] = result
+        # Allowance question has been answered
+        session["awaiting_allowance_response"] = False
         self._persist_session(session)
         return result
 
@@ -1318,6 +1332,7 @@ CRITICAL RULES:
         )
         session["status"] = "rejected"
         session["negotiation"]["status"] = "rejected"
+        session["rejection_remark"] = reason
         session["history"].append(
             {
                 "role": "tata",
@@ -1337,6 +1352,42 @@ CRITICAL RULES:
             f"Reason: {reason}"
         )
         self._persist_session(session)
+        return self._serialize_session(session)
+
+    def reopen_after_rejection(
+        self,
+        employee_id: str,
+        part_number: str,
+    ) -> dict[str, Any]:
+        """Re-open a rejected session so the supplier can re-negotiate.
+
+        Resets status to 'active', clears sheet optimization (forces re-validation),
+        and carries forward the rejection remark so the supplier can see why.
+        """
+        session = self._ensure_session(employee_id, part_number)
+        if session["status"] != "rejected":
+            raise ValueError("Only rejected sessions can be reopened.")
+
+        remark = session.get("rejection_remark", "No reason provided.")
+        session["status"] = "active"
+        session["negotiation"]["status"] = "active"
+        # Force re-validation of sheet optimization
+        session["sheet_optimization"] = {}
+        session["awaiting_allowance_response"] = False
+        session["history"].append(
+            {
+                "role": "system",
+                "message": (
+                    f"Session reopened for re-negotiation after rejection. "
+                    f"Previous rejection reason: {remark}. "
+                    f"Please upload a revised costing sheet to continue."
+                ),
+                "timestamp": self._now_iso(),
+            }
+        )
+        session["summary"] = self._build_summary(session)
+        self._persist_session(session)
+        logger.info("Session reopened after rejection: %s:%s", employee_id, part_number)
         return self._serialize_session(session)
 
 
@@ -1433,6 +1484,24 @@ CRITICAL RULES:
 
     def run_negotiation(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(employee_id, part_number)
+
+        # ── Server-side negotiation gate ──
+        if session.get("awaiting_allowance_response"):
+            raise ValueError(
+                "Please answer the cutting allowance question before negotiating."
+            )
+        sheet_opt = session.get("sheet_optimization", {})
+        if not sheet_opt or sheet_opt.get("is_optimal") is None:
+            raise ValueError(
+                "Sheet optimization must be validated before negotiation. "
+                "Please upload a costing sheet and complete the validation."
+            )
+        if sheet_opt.get("is_optimal") is False:
+            raise ValueError(
+                "Sheet size is not optimal. "
+                "Please revise the costing sheet using the recommended sheet size."
+            )
+
         data = session["extracted_data"]
         msg = supplier_message.lower().strip()
         missing_queries = [
