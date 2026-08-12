@@ -1159,16 +1159,20 @@ CRITICAL RULES:
         }
 
     # ─── Sheet Utilization Optimization ───────────────────────────────────
-
     def _validate_sheet_optimization(
-        self, extracted_data: dict[str, Any], includes_cutting_allowance: bool = True
+        self,
+        extracted_data: dict[str, Any],
+        includes_cutting_allowance: bool = True,
     ) -> dict[str, Any]:
-        """Calculate sheet utilization for all approved sheet sizes.
+        """
+        Calculate sheet utilization for all approved sheet sizes.
 
-        Uses the user-specified formula:
-          effective_length = part_length + 1.5 * thickness
-          effective_width  = part_width  + 1.5 * thickness
-        when cutting allowance is NOT already included.
+        Selection criteria:
+        Lowest Weight Per Part =
+        (Sheet Length × Sheet Width × Thickness × 7.85 / 10^6)
+        / Number Of Parts Fitting
+
+        This follows the procurement requirement provided by Tata Motors.
         """
         part_length = float(
             extracted_data.get("part_length")
@@ -1186,26 +1190,22 @@ CRITICAL RULES:
             or extracted_data.get("thickness")
             or 0
         )
-
         if part_length <= 0 or part_width <= 0 or thickness <= 0:
             return {
                 "optimal": None,
                 "message": "Part dimensions or thickness missing.",
                 "all_options": [],
             }
-
-        # Apply cutting/shearing allowance if NOT already included
+        # Apply cutting allowance only if not already included
         if not includes_cutting_allowance:
-            effective_length = part_length + 1.5 * thickness
-            effective_width = part_width + 1.5 * thickness
+            effective_length = part_length + (1.5 * thickness)
+            effective_width = part_width + (1.5 * thickness)
         else:
             effective_length = part_length
             effective_width = part_width
-
-        max_pieces = 0
-        selected_sheet = (0, 0)
         all_options = []
-
+        best_weight_per_part = float("inf")
+        best_option = None
         for sheet_l, sheet_w in self.APPROVED_SHEET_SIZES:
             # Normal orientation
             pieces_normal = (
@@ -1217,54 +1217,65 @@ CRITICAL RULES:
                 math.floor(sheet_l / effective_width)
                 * math.floor(sheet_w / effective_length)
             )
-            pieces = max(pieces_normal, pieces_rotated)
-
-            if pieces > 0:
-                weight_per_part = round(
-                    (sheet_l * sheet_w * thickness * 7.85) / (1e6 * pieces), 2
-                )
+            pieces = max(
+                pieces_normal,
+                pieces_rotated
+            )
+            if pieces <= 0:
+                weight_per_part = float("inf")
             else:
-                weight_per_part = 0
-
-            all_options.append({
-                "sheet_size": f"{sheet_l} \u00d7 {sheet_w}",
+                sheet_weight = (
+                    sheet_l
+                    * sheet_w
+                    * thickness
+                    * 7.85
+                ) / 1_000_000
+                weight_per_part = sheet_weight / pieces
+            # Normalize size for display
+            display_l, display_w = sorted(
+                [sheet_l, sheet_w]
+            )
+            option = {
+                "sheet_size": f"{display_l} × {display_w}",
                 "sheet_length": sheet_l,
                 "sheet_width": sheet_w,
                 "num_parts": pieces,
-                "weight_per_part": weight_per_part,
-            })
-
-            if pieces > max_pieces:
-                max_pieces = pieces
-                selected_sheet = (sheet_l, sheet_w)
-
-        # Sort by num_parts descending (most pieces = most efficient)
-        all_options.sort(key=lambda x: -x["num_parts"])
-
-        if max_pieces <= 0:
+                "weight_per_part": (
+                    0 if weight_per_part == float("inf")
+                    else round(weight_per_part, 2)
+                ),
+            }
+            all_options.append(option)
+            # Winner = lowest weight per part
+            if (
+                pieces > 0
+                and weight_per_part < best_weight_per_part
+            ):
+                best_weight_per_part = weight_per_part
+                best_option = option
+        if best_option is None:
             return {
                 "optimal": None,
                 "message": "No approved sheet size can fit the part.",
                 "all_options": all_options,
             }
-
-        best_weight = round(
-            (selected_sheet[0] * selected_sheet[1] * thickness * 7.85)
-            / (1e6 * max_pieces),
-            2,
+        # Sort by LOWEST weight per part first
+        all_options.sort(
+            key=lambda x: (
+                x["weight_per_part"] if x["weight_per_part"] > 0 else 999999
+            )
         )
-
         return {
             "all_options": all_options,
-            "best_option": {
-                "sheet_size": f"{selected_sheet[0]} \u00d7 {selected_sheet[1]}",
-                "sheet_length": selected_sheet[0],
-                "sheet_width": selected_sheet[1],
-                "num_parts": max_pieces,
-                "weight_per_part": best_weight,
-            },
-            "effective_part_length": round(effective_length, 2),
-            "effective_part_width": round(effective_width, 2),
+            "best_option": best_option,
+            "effective_part_length": round(
+                effective_length,
+                2
+            ),
+            "effective_part_width": round(
+                effective_width,
+                2
+            ),
         }
 
     def check_sheet_optimization(
@@ -1281,7 +1292,7 @@ CRITICAL RULES:
         result = self._validate_sheet_optimization(data, includes_cutting_allowance)
 
         # Early exit if dimensions missing
-        if result.get("optimal") is None and "message" in result:
+        if "best_option" not in result:
             session["sheet_optimization"] = result
             self._persist_session(session)
             return result
@@ -1289,14 +1300,29 @@ CRITICAL RULES:
         best = result["best_option"]
         current_sheet_l = float(data.get("sheet_length") or 0)
         current_sheet_w = float(data.get("sheet_width") or 0)
-        current_sheet = f"{current_sheet_l:.0f} \u00d7 {current_sheet_w:.0f}"
+        display_l, display_w = sorted([
+            int(current_sheet_l),
+            int(current_sheet_w)
+        ])
+        current_sheet = f"{display_l} \u00d7 {display_w}"
 
         # Compare current sheet to optimal (either orientation)
-        is_optimal = (
-            (current_sheet_l == best["sheet_length"] and current_sheet_w == best["sheet_width"])
-            or (current_sheet_l == best["sheet_width"] and current_sheet_w == best["sheet_length"])
+        current_normalized = tuple(
+            sorted([
+                int(current_sheet_l),
+                int(current_sheet_w)
+            ])
         )
-
+        best_normalized = tuple(
+            sorted([
+                int(best["sheet_length"]),
+                int(best["sheet_width"])
+            ])
+        )
+        is_optimal = (
+            current_normalized
+            == best_normalized
+        )
         result["current_sheet"] = current_sheet
         result["is_optimal"] = is_optimal
         result["includes_cutting_allowance"] = includes_cutting_allowance
