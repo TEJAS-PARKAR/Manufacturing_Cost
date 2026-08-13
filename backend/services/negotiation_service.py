@@ -210,7 +210,6 @@ class SupplierNegotiationService:
             "ALLOWANCE FLAG = %s",
             session.get("awaiting_allowance_response")
         )
-
         logger.info(
             "SERIALIZED FLAG = %s",
             self._serialize_session(session).get("awaiting_allowance_response")
@@ -337,6 +336,10 @@ class SupplierNegotiationService:
 
 
     def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
+        logger.info(
+            "SERIALIZE FLAG = %s",
+            session.get("awaiting_allowance_response")
+        )
         return {
             "employee_id": session["employee_id"],
             "part_number": session["part_number"],
