@@ -294,18 +294,25 @@ class SupplierNegotiationService:
 
     
     def _ensure_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
-        
         part_number = self._validate_part_number(part_number)
         key = self._session_key(employee_id, part_number)
-        storage_key = self._storage_key(
-            employee_id,
-            part_number
-        )
-        logger.debug("Ensuring session for %s:%s (storage_key=%s)", employee_id, part_number, storage_key)
+        storage_key = self._storage_key(employee_id, part_number)
         session = self.sessions.get(key)
+        # Memory cache exists
         if session is not None:
-            logger.debug("Session found in memory")
+            if self.mongo_collection is not None:
+                doc = self.mongo_collection.find_one(
+                    {"_id": storage_key}
+                )
+                # Deleted from Mongo
+                if doc is None:
+                    self.sessions.pop(key, None)
+                    return self.start_session(
+                        employee_id,
+                        part_number
+                    )
             return session
+        # Not in memory -> load from Mongo
         if self.mongo_collection is not None:
             doc = self.mongo_collection.find_one(
                 {"_id": storage_key}
@@ -313,9 +320,7 @@ class SupplierNegotiationService:
             if doc:
                 session = self._hydrate_session(doc)
                 self.sessions[key] = session
-                logger.debug("Session loaded from MongoDB")
                 return session
-        logger.debug("Creating new session")
         return self.start_session(
             employee_id,
             part_number
@@ -383,7 +388,18 @@ class SupplierNegotiationService:
         session_key = session.get("session_key")
         if isinstance(session_key, list):
             session["session_key"] = tuple(session_key)
-        session["missing_fields"] = self._identify_missing_fields(session.get("extracted_data", {}))
+        session["missing_fields"] = self._identify_missing_fields(
+            session.get("extracted_data", {})
+        )
+        # Ensure new fields exist for older sessions
+        session.setdefault("awaiting_allowance_response", False)
+        session.setdefault("sheet_optimization", {})
+        if (
+            session.get("extracted_data")
+            and session.get("extracted_data", {}).get("part_length")
+            and not session.get("sheet_optimization")
+        ):
+            session["awaiting_allowance_response"] = True
         return session
 
     def _validate_part_number(self, part_number: str) -> str:
@@ -1525,9 +1541,8 @@ CRITICAL RULES:
         if sheet_opt.get("is_optimal") is False:
             raise ValueError(
                 "Sheet size is not optimal. "
-                "Please revise the costing sheet using the recommended sheet size."
+                "Please upload the revised costing sheet using the recommended sheet size."
             )
-
         data = session["extracted_data"]
         msg = supplier_message.lower().strip()
         missing_queries = [
