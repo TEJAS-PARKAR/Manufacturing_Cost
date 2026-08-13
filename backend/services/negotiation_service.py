@@ -206,6 +206,15 @@ class SupplierNegotiationService:
         # Clear previous sheet optimization so supplier must re-validate
         session["sheet_optimization"] = {}
         logger.debug("Extracted data keys after update: %s", list(session["extracted_data"].keys()))
+        logger.info(
+            "ALLOWANCE FLAG = %s",
+            session.get("awaiting_allowance_response")
+        )
+
+        logger.info(
+            "SERIALIZED FLAG = %s",
+            self._serialize_session(session).get("awaiting_allowance_response")
+        )
         self._persist_session(session)
         return self._serialize_session(session)
 
