@@ -1331,7 +1331,7 @@ CRITICAL RULES:
             result["recommendation"] = (
                 f"The selected sheet size ({current_sheet}) is not optimal. "
                 f"Recommended sheet size: {best['sheet_size']}. "
-                f"Please revise the costing sheet using the recommended sheet size."
+                f"Please upload the revised costing sheet using the recommended sheet size."
             )
 
         # Store effective (allowance-adjusted) part dims back into session
