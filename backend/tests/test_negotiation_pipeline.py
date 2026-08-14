@@ -2,6 +2,7 @@ from io import BytesIO
 
 from openpyxl import Workbook
 
+from backend.models import SupplierSessionResponse
 from backend.services.negotiation_service import SupplierNegotiationService
 
 
@@ -77,3 +78,38 @@ def test_excel_upload_builds_raw_table_and_interpretation_layers() -> None:
     assert result["excel_interpretation"]["material"] == "CRCA"
     assert result["excel_interpretation"]["material_rate"] == 65.0
     assert result["excel_interpretation"]["coating"] == "POWDER COATING"
+
+
+def test_session_response_preserves_allowance_gate_state() -> None:
+    service = SupplierNegotiationService()
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Costing"
+    worksheet.append([
+        "quantity",
+        "material",
+        "material_rate",
+        "coating",
+        "process_information",
+        "part_length",
+        "part_width",
+        "part_thickness",
+        "sheet_length",
+        "sheet_width",
+    ])
+    worksheet.append([1200, "CRCA", 65, "POWDER COATING", "LASER CUTTING", 250, 200, 2, 1250, 2500])
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    payload = buffer.getvalue()
+
+    result = service.ingest_excel(
+        employee_id="EMP1001",
+        part_number="123456789012",
+        file_bytes=payload,
+        filename="costing.xlsx",
+    )
+
+    response = SupplierSessionResponse(**result)
+    assert response.awaiting_allowance_response is True

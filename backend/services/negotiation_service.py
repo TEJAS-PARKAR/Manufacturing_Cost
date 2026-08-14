@@ -404,15 +404,27 @@ class SupplierNegotiationService:
         session["missing_fields"] = self._identify_missing_fields(
             session.get("extracted_data", {})
         )
-        # Ensure new fields exist for older sessions
-        session.setdefault("awaiting_allowance_response", False)
         session.setdefault("sheet_optimization", {})
-        if (
-            session.get("extracted_data")
-            and session.get("extracted_data", {}).get("part_length")
-            and not session.get("sheet_optimization")
-        ):
-            session["awaiting_allowance_response"] = True
+
+        # Preserve explicit persisted state on resume to avoid dropping the allowance gate.
+        if "awaiting_allowance_response" not in session:
+            extracted = session.get("extracted_data", {})
+            dimension_keys = (
+                "part_length",
+                "length",
+                "part_width",
+                "width",
+                "part_thickness",
+                "thickness",
+            )
+            has_dimensions = any(key in extracted for key in dimension_keys)
+            session["awaiting_allowance_response"] = bool(
+                extracted and has_dimensions and not session.get("sheet_optimization")
+            )
+        else:
+            session["awaiting_allowance_response"] = bool(
+                session.get("awaiting_allowance_response", False)
+            )
         return session
 
     def _validate_part_number(self, part_number: str) -> str:

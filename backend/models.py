@@ -117,6 +117,8 @@ class SupplierSessionResponse(BaseModel):
     negotiation: Dict[str, Any] = Field(default_factory=dict)
     revisions: List[Dict[str, Any]] = Field(default_factory=list)
     sheet_optimization: Dict[str, Any] = Field(default_factory=dict)
+    awaiting_allowance_response: bool = Field(default=False)
+    rejection_remark: Optional[str] = None
 
 
 class SupplierReviewDashboardResponse(BaseModel):
