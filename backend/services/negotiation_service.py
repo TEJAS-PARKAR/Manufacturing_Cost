@@ -201,6 +201,7 @@ class SupplierNegotiationService:
                 session["extracted_data"]
             )
         )
+        logger.error("########### INGEST EXCEL DEBUG HIT ###########")
         # Mark that the cutting allowance question needs to be answered
         session["awaiting_allowance_response"] = True
         # Clear previous sheet optimization so supplier must re-validate
