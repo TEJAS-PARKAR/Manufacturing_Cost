@@ -53,13 +53,17 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
   // ── Restore state from session on mount / session change ──
   useEffect(() => {
-    // Restore allowance prompt if session says we're awaiting
+    console.log("SESSION DEBUG");
+    console.log("awaiting_allowance_response =", session.awaiting_allowance_response);
+    console.log("total_cost =", extracted.total_cost);
+    console.log("full session =", session);
+
     if (session.awaiting_allowance_response && extracted.total_cost) {
       setShowAllowancePrompt(true);
     } else {
       setShowAllowancePrompt(false);
     }
-    // Restore sheet optimization result from session
+
     if (sheetOpt && sheetOpt.is_optimal !== undefined) {
       setSheetOptResult(sheetOpt);
     } else {
@@ -95,6 +99,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setSheetOptResult(null);
     try {
       const result = await api.uploadExcel(employeeId, partNumber, file);
+      console.log("UPLOAD RESPONSE =", result);
       setSession(result);
       setAlert({ type: 'success', message: 'Excel data extracted and merged into the session.' });
       // Show cutting allowance question after successful extraction
