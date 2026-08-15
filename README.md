@@ -104,7 +104,7 @@ Set the following before running the app if you want the LLM-backed extraction t
 
 ```bash
 export GROQ_API_KEY="your_groq_api_key"
-export GROQ_MODEL="llama-3.1-8b-instant"
+export GROQ_MODEL="llama-3.3-70b-versatile"
 ```
 
 Optional portal credentials:

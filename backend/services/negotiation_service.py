@@ -40,7 +40,7 @@ class SupplierNegotiationService:
     def __init__(self) -> None:
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
         self.mongo_collection = MongoConnection.get_collection(collection_name)
 
@@ -201,7 +201,7 @@ class SupplierNegotiationService:
                 session["extracted_data"]
             )
         )
-        logger.error("########### INGEST EXCEL DEBUG HIT ###########")
+
         # Mark that the cutting allowance question needs to be answered
         session["awaiting_allowance_response"] = True
         # Clear previous sheet optimization so supplier must re-validate
@@ -1989,6 +1989,7 @@ CRITICAL RULES:
             + float(data.get("overhead_cost") or 0)
             + float(data.get("icc_cost") or 0)
             + float(data.get("rejection_cost") or 0)
+            + float(data.get("profit") or 0)
             + float(data.get("packing_cost") or 0)
             + float(data.get("transport_cost") or 0),
             2

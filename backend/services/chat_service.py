@@ -24,7 +24,7 @@ class ChatCostService:
         self.estimator = CostEstimator()
         self.model = None
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.groq_model = os.getenv("GROQ_MODEL") or os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self._train_model()
 
     def _train_model(self) -> None:
