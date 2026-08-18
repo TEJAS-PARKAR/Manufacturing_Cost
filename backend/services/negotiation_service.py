@@ -341,13 +341,12 @@ class SupplierNegotiationService:
             "SERIALIZE FLAG = %s",
             session.get("awaiting_allowance_response")
         )
-        return {
+        public_session = {
             "employee_id": session["employee_id"],
             "part_number": session["part_number"],
             "session_key": session["session_key"],
             "status": session["status"],
             "extracted_data": session["extracted_data"],
-            "raw_table": session.get("raw_table", {}),
             "excel_interpretation": session.get("excel_interpretation", {}),
             "history": session["history"],
             "summary": session["summary"],
@@ -371,6 +370,7 @@ class SupplierNegotiationService:
                 None
             ),
         }
+        return public_session
 
     def _storage_key(self, employee_id: str, part_number: str) -> str:
         return f"{employee_id.strip()}::{part_number.strip()}"

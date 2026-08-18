@@ -108,7 +108,7 @@ class SupplierSessionResponse(BaseModel):
     session_key: Any  # serialized as list from JSON; avoid strict tuple validation
     status: str
     extracted_data: Dict[str, Any]
-    raw_table: Dict[str, Any] = Field(default_factory=dict)
+    raw_table: Dict[str, Any] = Field(default_factory=dict, exclude=True)
     excel_interpretation: Dict[str, Any] = Field(default_factory=dict)
     history: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str

@@ -72,12 +72,18 @@ def test_excel_upload_builds_raw_table_and_interpretation_layers() -> None:
         filename="quote.xlsx",
     )
 
-    assert result["raw_table"]["sheet_name"] == "Supplier Quote"
-    assert result["raw_table"]["headers"] == ["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"]
+    assert "raw_table" not in result
     assert result["excel_interpretation"]["quantity"] == 1200
     assert result["excel_interpretation"]["material"] == "CRCA"
     assert result["excel_interpretation"]["material_rate"] == 65.0
     assert result["excel_interpretation"]["coating"] == "POWDER COATING"
+
+    internal_session = service._ensure_session(
+        employee_id="EMP1001",
+        part_number="123456789012",
+    )
+    assert internal_session["raw_table"]["sheet_name"] == "Supplier Quote"
+    assert internal_session["raw_table"]["headers"] == ["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"]
 
 
 def test_session_response_preserves_allowance_gate_state() -> None:
@@ -113,3 +119,30 @@ def test_session_response_preserves_allowance_gate_state() -> None:
 
     response = SupplierSessionResponse(**result)
     assert response.awaiting_allowance_response is True
+
+
+def test_session_response_excludes_raw_excel_rows() -> None:
+    service = SupplierNegotiationService()
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Supplier Quote"
+    worksheet.append(["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"])
+    worksheet.append(["ABC-001", 1200, "CRCA", 65, "Powder Coating", "Laser Cutting"])
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    payload = buffer.getvalue()
+
+    result = service.ingest_excel(
+        employee_id="EMP1001",
+        part_number="123456789012",
+        file_bytes=payload,
+        filename="quote.xlsx",
+    )
+
+    public_response = SupplierSessionResponse(**result)
+    public_payload = public_response.model_dump(exclude_none=True)
+
+    assert "raw_table" not in public_payload
+    assert public_payload["extracted_data"]["material"] == "CRCA"
