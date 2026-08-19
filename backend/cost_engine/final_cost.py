@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.cost_engine.material_cost import MaterialCostCalculator
 from backend.cost_engine.process_cost import ProcessCostCalculator
 from backend.cost_engine.overhead_cost import OverheadCostCalculator
+from backend.models import CostEstimateRequest
 
 
 class CostEstimator:
@@ -11,7 +12,7 @@ class CostEstimator:
         self.process_calculator = ProcessCostCalculator()
         self.overhead_calculator = OverheadCostCalculator()
 
-    def estimate(self, request: object) -> dict:
+    def estimate(self, request: CostEstimateRequest) -> dict:
         dimensions = {
             "length": request.length,
             "width": request.width,

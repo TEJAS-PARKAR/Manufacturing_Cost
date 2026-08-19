@@ -9,14 +9,17 @@ from backend.services.mongo_service import MongoConnection
 
 
 class UserService:
+    _index_ensured: bool = False
+
     def __init__(self, collection=None, users_collection_name: Optional[str] = None) -> None:
         self.collection = collection
         self.users_collection_name = users_collection_name or os.getenv("MONGODB_USERS_COLLECTION", "users")
         if self.collection is None:
             self.collection = MongoConnection.get_collection(self.users_collection_name)
-        if self.collection is not None:
+        if self.collection is not None and not UserService._index_ensured:
             try:
                 self.collection.create_index([("username", 1)], unique=True)
+                UserService._index_ensured = True
             except Exception:
                 pass
 

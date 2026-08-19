@@ -85,7 +85,7 @@ export default function TataPortal({ employeeId, partNumber }) {
         Review supplier sessions, benchmark comparisons, and approve/reject final inputs.
       </p>
 
-      <button className="btn-primary" onClick={handleLoadDashboard} disabled={loading}>
+      <button className="btn-primary" onClick={handleLoadDashboard} disabled={loading || !employeeId || !partNumber}>
         {loading ? (
           <span className="spinner-overlay">
             <span className="spinner" />

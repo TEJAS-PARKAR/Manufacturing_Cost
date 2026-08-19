@@ -39,7 +39,7 @@ class CostEstimateRequest(BaseModel):
     quantity: int = Field(..., gt=0, description="Production quantity")
     length: float = Field(..., gt=0, description="Length in mm")
     width: float = Field(..., gt=0, description="Width in mm")
-    height: float = Field(..., gt=0, description="Height in mm")
+    height: Optional[float] = Field(default=0.0, ge=0, description="Height in mm (reserved for future use, not used in current cost calculations)")
     thickness: float = Field(..., gt=0, description="Thickness in mm")
     material: MaterialInput
     processes: List[ProcessInput] = Field(default_factory=list)

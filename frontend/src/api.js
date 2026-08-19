@@ -45,7 +45,7 @@ async function apiFetch(path, options = {}) {
     clearAuth();
     // Force back to login on expired/invalid token
     window.location.reload();
-    throw new Error('Session expired. Please log in again.');
+    return res;  // unreachable, but satisfies return type
   }
   if (res.status === 403) {
     throw new Error('You are not allowed to access this resource.');

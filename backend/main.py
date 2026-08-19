@@ -21,14 +21,20 @@ app = FastAPI(
 
 # Use configured CORS origins from .env, fallback to localhost defaults
 # Explicit origins from .env (optional, for custom/fixed domains)
-cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501")
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+# Configurable regex for dynamic origins (Codespaces, Vercel, etc.)
+# Set CORS_ORIGIN_REGEX in .env to match your specific deployment domains.
+cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"http://localhost:\d+|http://127\.0\.0\.1:\d+"
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    # Matches ANY Codespaces + Vercel + localhost URL — no more hardcoding
-    allow_origin_regex=r"https://.*\.app\.github\.dev|https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

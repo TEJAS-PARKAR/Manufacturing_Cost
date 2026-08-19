@@ -326,4 +326,4 @@ class ChatCostService:
         return default
 
     def _contains_any(self, text: str, keywords: List[str]) -> bool:
-        return any(keyword in text for keyword in keywords)
+        return any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords)

@@ -28,7 +28,7 @@ function getWorkflowStep(session, showAllowancePrompt) {
   const sheetOpt = session.sheet_optimization || {};
   const awaiting = session.awaiting_allowance_response;
 
-  if (!extracted.total_cost) return 'upload';
+  if (extracted.total_cost == null) return 'upload';
   if (awaiting || showAllowancePrompt) return 'allowance';
   if (!sheetOpt.is_optimal && sheetOpt.is_optimal !== true) return 'validation';
   return 'negotiate';
@@ -67,13 +67,13 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
   }, [session.session_key, session.awaiting_allowance_response, sheetOpt.is_optimal]);
 
   // ── Derive blocking state from SESSION data (not just local state) ──
-  const needsExcelUpload = !extracted.total_cost;
+  const needsExcelUpload = extracted.total_cost == null;
   const awaitingAllowance = session.awaiting_allowance_response === true;
   const sheetNotValidated = !sheetOpt || sheetOpt.is_optimal === undefined;
   const sheetNotOptimal = sheetOpt && sheetOpt.is_optimal === false;
   const isRejected = status === 'rejected';
 
-  const chatBlocked = needsExcelUpload || awaitingAllowance || (extracted.total_cost && sheetNotValidated) || sheetNotOptimal || isRejected;
+  const chatBlocked = needsExcelUpload || awaitingAllowance || (extracted.total_cost != null && sheetNotValidated) || sheetNotOptimal || isRejected;
 
   // Determine which blocking message to show
   const getBlockingMessage = () => {

@@ -59,6 +59,11 @@ def login(payload: LoginRequest) -> LoginResponse:
     token = create_token(subject=payload.username, role=role)
     return LoginResponse(token=token, role=role, username=payload.username)
 
+@router.post("/logout", include_in_schema=False)
+def logout(identity: dict = Depends(get_identity)) -> dict:
+    """Logout endpoint — client should clear stored token."""
+    return {"status": "logged_out"}
+
 @router.get("/health", include_in_schema=False)
 def health() -> dict:
     return {"status": "ok", "service": "manufacturing-cost-api"}
@@ -69,7 +74,8 @@ def health() -> dict:
     response_model=CostEstimateResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def estimate_cost(payload: CostEstimateRequest) -> CostEstimateResponse:
+def estimate_cost(payload: CostEstimateRequest,
+                  identity: dict = Depends(get_identity)) -> CostEstimateResponse:
     try:
         result = service.estimate(payload)
         return CostEstimateResponse(**result)
@@ -84,7 +90,8 @@ def estimate_cost(payload: CostEstimateRequest) -> CostEstimateResponse:
     response_model=ChatCostResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def chat_cost(payload: ChatCostRequest) -> ChatCostResponse:
+def chat_cost(payload: ChatCostRequest,
+             identity: dict = Depends(get_identity)) -> ChatCostResponse:
     try:
         result = chat_service.handle_message(payload.message)
         return ChatCostResponse(**result)
@@ -136,16 +143,38 @@ def supplier_session_message(payload: SupplierMessageRequest,
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_EXCEL_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+}
+
+
 @router.post("/supplier/session/upload-excel", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
 async def supplier_session_upload_excel(employee_id: str, part_number: str,
                                         file: UploadFile = File(...),
                                         identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, employee_id)
+    # Validate file type
+    filename = file.filename or ""
+    if file.content_type not in ALLOWED_EXCEL_TYPES and not filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx, .xls) are accepted."
+        )
     try:
         content = await file.read()
-        result = negotiation_service.ingest_excel(employee_id, part_number, content, file.filename or "costing.xlsx")
+        # Validate file size
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
+            )
+        result = negotiation_service.ingest_excel(employee_id, part_number, content, filename or "costing.xlsx")
         return SupplierSessionResponse(**result)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:

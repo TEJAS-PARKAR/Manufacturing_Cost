@@ -13,7 +13,7 @@ export default function Sidebar({ portal, onPortalChange, authenticated, usernam
         {['Supplier', 'Tata Motors'].map((p) => (
           <label
             key={p}
-            className={`portal-radio-label${portal === p ? ' active' : ''}`}
+            className={`portal-radio-label${portal === p ? ' active' : ''}${authenticated ? ' disabled' : ''}`}
           >
             <input
               type="radio"
@@ -21,6 +21,7 @@ export default function Sidebar({ portal, onPortalChange, authenticated, usernam
               value={p}
               checked={portal === p}
               onChange={() => onPortalChange(p)}
+              disabled={authenticated}
             />
             {p}
           </label>

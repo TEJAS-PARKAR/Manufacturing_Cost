@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+
 from datetime import datetime, timezone
 from io import BytesIO
 import json
@@ -37,8 +39,10 @@ class SupplierNegotiationService:
         (1250, 2700),
     ]
 
+    MAX_CACHED_SESSIONS = 500
+
     def __init__(self) -> None:
-        self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
+        self.sessions: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
@@ -104,7 +108,7 @@ class SupplierNegotiationService:
                 "challenged_drivers": []
             }
         }
-        self.sessions[key] = session
+        self._cache_session(key, session)
         self._persist_session(session)
         logger.info("New session created for %s:%s", employee_id, part_number)
         return self._serialize_session(session)
@@ -160,7 +164,7 @@ class SupplierNegotiationService:
         interpretation = self._interpret_excel_table(
             raw_table
         )
-        logger.info("RAW TABLE HEADERS: %s", raw_table.get("headers"))
+        logger.debug("RAW TABLE HEADERS: %s", raw_table.get("headers"))
         logger.debug("INTERPRETATION: %s", interpretation)
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
@@ -193,7 +197,7 @@ class SupplierNegotiationService:
             "original_part_width",
         ]:
             session["extracted_data"].pop(field, None)
-        logger.info("NEW INTERPRETATION = %s", interpretation)
+        logger.debug("NEW INTERPRETATION = %s", interpretation)
         session["extracted_data"].update(interpretation)
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
@@ -225,14 +229,7 @@ class SupplierNegotiationService:
         # Clear previous sheet optimization so supplier must re-validate
         session["sheet_optimization"] = {}
         logger.debug("Extracted data keys after update: %s", list(session["extracted_data"].keys()))
-        logger.info(
-            "ALLOWANCE FLAG = %s",
-            session.get("awaiting_allowance_response")
-        )
-        logger.info(
-            "SERIALIZED FLAG = %s",
-            self._serialize_session(session).get("awaiting_allowance_response")
-        )
+
         self._persist_session(session)
         return self._serialize_session(session)
 
@@ -254,6 +251,9 @@ class SupplierNegotiationService:
                 ) * 100,
                 2
             )
+        elif supplier_quote > 0:
+            # Cannot compute meaningful variance without benchmark costs
+            variance = 100.0
         if variance <= 3:
             recommendation = "approve"
             counter_offer = supplier_quote
@@ -325,19 +325,10 @@ class SupplierNegotiationService:
         key = self._session_key(employee_id, part_number)
         storage_key = self._storage_key(employee_id, part_number)
         session = self.sessions.get(key)
-        # Memory cache exists
+        # Memory cache exists — trust it
         if session is not None:
-            if self.mongo_collection is not None:
-                doc = self.mongo_collection.find_one(
-                    {"_id": storage_key}
-                )
-                # Deleted from Mongo
-                if doc is None:
-                    self.sessions.pop(key, None)
-                    return self.start_session(
-                        employee_id,
-                        part_number
-                    )
+            # Move to end for LRU ordering
+            self.sessions.move_to_end(key)
             return session
         # Not in memory -> load from Mongo
         if self.mongo_collection is not None:
@@ -346,7 +337,7 @@ class SupplierNegotiationService:
             )
             if doc:
                 session = self._hydrate_session(doc)
-                self.sessions[key] = session
+                self._cache_session(key, session)
                 return session
         return self.start_session(
             employee_id,
@@ -355,10 +346,7 @@ class SupplierNegotiationService:
 
 
     def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
-        logger.info(
-            "SERIALIZE FLAG = %s",
-            session.get("awaiting_allowance_response")
-        )
+
         public_session = {
             "employee_id": session["employee_id"],
             "part_number": session["part_number"],
@@ -389,6 +377,13 @@ class SupplierNegotiationService:
             ),
         }
         return public_session
+
+    def _cache_session(self, key: tuple[str, str], session: dict[str, Any]) -> None:
+        """Store session in the LRU cache, evicting the oldest entry if full."""
+        self.sessions[key] = session
+        self.sessions.move_to_end(key)
+        while len(self.sessions) > self.MAX_CACHED_SESSIONS:
+            self.sessions.popitem(last=False)
 
     def _storage_key(self, employee_id: str, part_number: str) -> str:
         return f"{employee_id.strip()}::{part_number.strip()}"
@@ -770,7 +765,7 @@ CRITICAL RULES:
             parsed = None
             try:
                 parsed = json.loads(content)
-                logger.info("PARSED DATA: %s", parsed)
+                logger.debug("PARSED DATA: %s", parsed)
             except json.JSONDecodeError as e:
                 # Fallback: try to extract the first JSON object from the response
                 logger.warning("Direct JSON parse failed: %s — attempting regex extraction", str(e))
@@ -778,7 +773,7 @@ CRITICAL RULES:
                 if json_match:
                     try:
                         parsed = json.loads(json_match.group())
-                        logger.info("PARSED DATA (regex fallback): %s", parsed)
+                        logger.debug("PARSED DATA (regex fallback): %s", parsed)
                     except json.JSONDecodeError:
                         logger.error("Regex fallback also failed. RAW CONTENT:\n%s", content)
                         return {}
@@ -1078,9 +1073,7 @@ CRITICAL RULES:
                     return int(float(str(value)))
                 except ValueError:
                     pass
-        for value in lookup.values():
-            if isinstance(value, (int, float)):
-                return int(float(value))
+
         return None
 
     def _extract_dimensions_from_lookup(self, lookup: dict[str, Any]) -> list[float] | None:
@@ -1422,7 +1415,7 @@ CRITICAL RULES:
                 float(adjusted_length),
             ]
             data["allowance_applied"] = True
-            logger.info(
+            logger.debug(
                 "Cutting allowance applied. "
                 "Length: %s -> %s, Width: %s -> %s",
                 data["original_part_length"],

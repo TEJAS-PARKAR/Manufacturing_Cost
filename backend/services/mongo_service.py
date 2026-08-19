@@ -14,6 +14,10 @@ try:
     from pymongo import MongoClient
 except Exception:  # pragma: no cover - optional dependency guard
     MongoClient = None
+    logging.getLogger(__name__).warning(
+        "pymongo is not installed — all MongoDB operations will be unavailable. "
+        "Install with: pip install pymongo"
+    )
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -99,14 +103,15 @@ class MongoConnection:
 
     @classmethod
     def get_database(cls, database_name: Optional[str] = None):
-        if cls._database is not None:
+        db_name = database_name or os.getenv("MONGODB_DB_NAME", "manufacturing_cost")
+        # Return cached database only if the name matches
+        if cls._database is not None and cls._database.name == db_name:
             return cls._database
 
         client = cls.get_client()
         if client is None:
             return None
 
-        db_name = database_name or os.getenv("MONGODB_DB_NAME", "manufacturing_cost")
         cls._database = client[db_name]
         return cls._database
 
