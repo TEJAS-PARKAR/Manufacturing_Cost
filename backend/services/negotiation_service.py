@@ -176,6 +176,24 @@ class SupplierNegotiationService:
                     "source": "excel_reupload",
                     "timestamp": self._now_iso()
                 })
+        # Remove previous dimension values before applying new extraction
+        for field in [
+            "part_length",
+            "part_width",
+            "part_thickness",
+            "sheet_length",
+            "sheet_width",
+            "sheet_thickness",
+            "length",
+            "width",
+            "thickness",
+            "dimensions",
+            "allowance_applied",
+            "original_part_length",
+            "original_part_width",
+        ]:
+            session["extracted_data"].pop(field, None)
+        logger.info("NEW INTERPRETATION = %s", interpretation)
         session["extracted_data"].update(interpretation)
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
@@ -820,12 +838,12 @@ CRITICAL RULES:
                         pass
 
         # Populate part_* from old fields if not already set
-        if not normalized.get("part_length") and normalized.get("length"):
-            normalized["part_length"] = round(float(normalized["length"]), 2)
-        if not normalized.get("part_width") and normalized.get("width"):
-            normalized["part_width"] = round(float(normalized["width"]), 2)
-        if not normalized.get("part_thickness") and normalized.get("thickness"):
-            normalized["part_thickness"] = round(float(normalized["thickness"]), 2)
+        if not normalized.get("part_length") and values.get("length") is not None:
+            normalized["part_length"] = round(float(values["length"]), 2)
+        if not normalized.get("part_width") and values.get("width") is not None:
+            normalized["part_width"] = round(float(values["width"]), 2)
+        if not normalized.get("part_thickness") and values.get("thickness") is not None:
+            normalized["part_thickness"] = round(float(values["thickness"]), 2)
 
         # Populate sheet_* from old fields if not already set
         if not normalized.get("sheet_length"):
@@ -1415,6 +1433,18 @@ CRITICAL RULES:
         session["sheet_optimization"] = result
         # Allowance question answered
         session["awaiting_allowance_response"] = False
+        if is_optimal:
+            session["history"].append(
+                {
+                    "role": "assistant",
+                    "message": (
+                        "Sheet validation completed successfully. "
+                        "We have reviewed the costing sheet and are ready to begin the negotiation. "
+                        "Please share your best commercial offer."
+                    ),
+                    "timestamp": self._now_iso()
+                }
+            )
         self._persist_session(session)
         return result
 
@@ -2026,3 +2056,4 @@ CRITICAL RULES:
             + float(data.get("transport_cost") or 0),
             2
         )
+    
