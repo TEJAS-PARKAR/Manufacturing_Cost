@@ -1469,7 +1469,7 @@ CRITICAL RULES:
                 "The quotation falls within our acceptable benchmark range "
                 "and may be considered for approval."
             )
-        counter_offer = round(expected * 1.02, 2)
+        counter_offer = round(expected * 1.03, 2)
         challenge = self._build_negotiation_question(
             data,
             session
@@ -1893,7 +1893,7 @@ CRITICAL RULES:
                 )
                 status = "continue"
             else:
-                counter_offer = round(expected_cost * 1.02, 2)
+                counter_offer = round(expected_cost * 1.03, 2)
                 challenge = self._build_negotiation_question(
                     data,
                     session
