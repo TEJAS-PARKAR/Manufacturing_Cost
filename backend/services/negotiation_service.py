@@ -201,7 +201,7 @@ class SupplierNegotiationService:
                 session["extracted_data"]
             )
         )
-
+        session["extracted_data"]["allowance_applied"] = False
         # Mark that the cutting allowance question needs to be answered
         session["awaiting_allowance_response"] = True
         # Clear previous sheet optimization so supplier must re-validate
@@ -1325,19 +1325,18 @@ CRITICAL RULES:
         part_number: str,
         includes_cutting_allowance: bool = True,
     ) -> dict[str, Any]:
-        """Public entry point: validate the supplier's sheet choice against
-        all approved sheet sizes and return the optimization result."""
+        """Validate supplier sheet against approved sheet sizes."""
         session = self._ensure_session(employee_id, part_number)
         data = session["extracted_data"]
-
-        result = self._validate_sheet_optimization(data, includes_cutting_allowance)
-
+        result = self._validate_sheet_optimization(
+            data,
+            includes_cutting_allowance
+        )
         # Early exit if dimensions missing
         if "best_option" not in result:
             session["sheet_optimization"] = result
             self._persist_session(session)
             return result
-
         best = result["best_option"]
         current_sheet_l = float(data.get("sheet_length") or 0)
         current_sheet_w = float(data.get("sheet_width") or 0)
@@ -1345,9 +1344,7 @@ CRITICAL RULES:
             int(current_sheet_l),
             int(current_sheet_w)
         ])
-        current_sheet = f"{display_l} \u00d7 {display_w}"
-
-        # Compare current sheet to optimal (either orientation)
+        current_sheet = f"{display_l} × {display_w}"
         current_normalized = tuple(
             sorted([
                 int(current_sheet_l),
@@ -1360,28 +1357,63 @@ CRITICAL RULES:
                 int(best["sheet_width"])
             ])
         )
-        is_optimal = (
-            current_normalized
-            == best_normalized
-        )
+        is_optimal = current_normalized == best_normalized
         result["current_sheet"] = current_sheet
         result["is_optimal"] = is_optimal
         result["includes_cutting_allowance"] = includes_cutting_allowance
-
         if not is_optimal:
             result["recommendation"] = (
                 f"The selected sheet size ({current_sheet}) is not optimal. "
                 f"Recommended sheet size: {best['sheet_size']}. "
                 f"Please upload the revised costing sheet using the recommended sheet size."
             )
+        # ---------------------------------------------------------
+        # APPLY CUTTING ALLOWANCE ONLY ONCE
+        # ---------------------------------------------------------
+        if (
+            not includes_cutting_allowance
+            and not data.get("allowance_applied", False)
+        ):
+            adjusted_length = result["effective_part_length"]
+            adjusted_width = result["effective_part_width"]
 
-        # Store effective (allowance-adjusted) part dims back into session
-        if not includes_cutting_allowance:
-            data["effective_part_length"] = result["effective_part_length"]
-            data["effective_part_width"] = result["effective_part_width"]
-
+            # Preserve original dimensions
+            data["original_part_length"] = (
+                data.get("part_length")
+                or data.get("length")
+            )
+            data["original_part_width"] = (
+                data.get("part_width")
+                or data.get("width")
+            )
+            # Update primary dimensions
+            data["part_length"] = adjusted_length
+            data["part_width"] = adjusted_width
+            # Update backward compatible fields
+            data["length"] = adjusted_length
+            data["width"] = adjusted_width
+            thickness = (
+                data.get("part_thickness")
+                or data.get("sheet_thickness")
+                or data.get("thickness")
+                or 0
+            )
+            data["dimensions"] = [
+                float(thickness),
+                float(adjusted_width),
+                float(adjusted_length),
+            ]
+            data["allowance_applied"] = True
+            logger.info(
+                "Cutting allowance applied. "
+                "Length: %s -> %s, Width: %s -> %s",
+                data["original_part_length"],
+                adjusted_length,
+                data["original_part_width"],
+                adjusted_width,
+            )
         session["sheet_optimization"] = result
-        # Allowance question has been answered
+        # Allowance question answered
         session["awaiting_allowance_response"] = False
         self._persist_session(session)
         return result
