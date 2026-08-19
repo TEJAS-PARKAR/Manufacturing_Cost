@@ -81,7 +81,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     if (needsExcelUpload) return { icon: '📄', text: 'Please upload a costing Excel sheet to begin the negotiation process.' };
     if (awaitingAllowance) return { icon: '✂️', text: 'Please answer the cutting allowance question above before proceeding.' };
     if (extracted.total_cost && sheetNotValidated) return { icon: '📋', text: 'Sheet optimization must be validated. Please answer the cutting allowance question.' };
-    if (sheetNotOptimal) return { icon: '⚠️', text: 'Sheet size is not optimal. Please revise the costing sheet using the recommended sheet size.' };
+    if (sheetNotOptimal) return { icon: '⚠️', text: 'Sheet size is not optimal. Please upload the revised costing sheet using the recommended sheet size.' };
     return null;
   };
 
@@ -306,7 +306,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
                 <tr>
                   <th>Sheet Size (mm)</th>
                   <th>Parts / Sheet</th>
-                  <th>Weight / Part (kg)</th>
+                  <th>Gross Weight (kg)</th>
                   <th>Status</th>
                 </tr>
               </thead>
