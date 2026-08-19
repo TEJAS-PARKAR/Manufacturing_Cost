@@ -254,7 +254,7 @@ class SupplierNegotiationService:
                 ) * 100,
                 2
             )
-        if variance <= 5:
+        if variance <= 3:
             recommendation = "approve"
             counter_offer = supplier_quote
         elif variance <= 15:
@@ -1444,6 +1444,8 @@ CRITICAL RULES:
                     "timestamp": self._now_iso()
                 }
             )
+        self._persist_session(session)
+        return result
 
     def _build_initial_negotiation_message(
         self,
@@ -1617,7 +1619,7 @@ CRITICAL RULES:
         if expected > 0:
             variance = round(((quote - expected) / expected) * 100, 2)
 
-        if variance <= 5:
+        if variance <= 3:
             reply = (
                 f"Thank you for your message. Your quoted cost of ₹{quote} is within our "
                 f"acceptable range. We are pleased to move forward with these terms."
@@ -1690,7 +1692,7 @@ CRITICAL RULES:
                 )
             session["history"].append(
                 {
-                    "role": "assistant",
+                    "role": "supplier",
                     "message": supplier_message,
                     "timestamp": self._now_iso()
                 }
@@ -1870,7 +1872,7 @@ CRITICAL RULES:
         if supplier_offer is not None:
             variance = round(((supplier_offer - expected_cost) / expected_cost) * 100, 2) if expected_cost > 0 else 0
 
-            if variance <= 5:
+            if variance <= 3:
                 decision_reply = (
                     f"Thank you. Your revised offer of ₹{supplier_offer:.2f} is within our "
                     f"acceptable range. The quotation can now be submitted for approval."
