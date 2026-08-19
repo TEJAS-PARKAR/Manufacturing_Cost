@@ -1437,18 +1437,51 @@ CRITICAL RULES:
             session["history"].append(
                 {
                     "role": "assistant",
-                    "message": (
-                        "Sheet validation completed successfully. "
-                        "We have reviewed the costing sheet and are ready to begin the negotiation. "
-                        "Please share your best commercial offer."
+                    "message": self._build_initial_negotiation_message(
+                        data,
+                        session
                     ),
                     "timestamp": self._now_iso()
                 }
             )
-        self._persist_session(session)
-        return result
 
-        
+    def _build_initial_negotiation_message(
+        self,
+        data: dict,
+        session: dict
+    ) -> str:
+        quote = float(
+            data.get("total_cost", 0)
+        )
+        expected = self._compute_expected_cost(data)
+        variance = (
+            round(((quote - expected) / expected) * 100, 2)
+            if expected > 0 else 0
+        )
+        if variance <= 3:
+            return (
+                f"Sheet validation completed successfully.\n\n"
+                f"We have reviewed the submitted costing sheet.\n\n"
+                f"Quoted cost: ₹{quote:.2f}\n"
+                f"Expected cost: ₹{expected:.2f}\n\n"
+                "The quotation falls within our acceptable benchmark range "
+                "and may be considered for approval."
+            )
+        counter_offer = round(expected * 1.02, 2)
+        challenge = self._build_negotiation_question(
+            data,
+            session
+        )
+        return (
+            f"Sheet validation completed successfully.\n\n"
+            f"Quoted cost: ₹{quote:.2f}\n"
+            f"Expected cost: ₹{expected:.2f}\n"
+            f"Variance: {variance:.2f}%\n\n"
+            f"Our counter-offer is ₹{counter_offer:.2f}.\n\n"
+            f"{challenge}"
+        )    
+    
+
     def reject_offer(
         self,
         employee_id: str,
