@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import StatusBadge from './StatusBadge';
-import Stepper from './Stepper';
 import MetricCard from './MetricCard';
 import CostChart from './CostChart';
 import CostSummary from './CostSummary';
@@ -115,7 +114,6 @@ export default function TataPortal({ employeeId, partNumber }) {
               <h3>Session Overview</h3>
               <StatusBadge status={status} />
             </div>
-            <Stepper status={status} />
 
             <div className="metric-grid">
               <MetricCard label="Part Number" value={session.part_number || '—'} />
