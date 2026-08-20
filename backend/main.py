@@ -26,9 +26,11 @@ cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if orig
 
 # Configurable regex for dynamic origins (Codespaces, Vercel, etc.)
 # Set CORS_ORIGIN_REGEX in .env to match your specific deployment domains.
-cors_origin_regex = os.getenv(
-    "CORS_ORIGIN_REGEX",
-    r"http://localhost:\d+|http://127\.0\.0\.1:\d+"
+cors_origin_regex = (
+    r"https://.*\.app\.github\.dev"
+    r"|https://.*\.vercel\.app"
+    r"|http://localhost:\d+"
+    r"|http://127\.0\.0\.1:\d+"
 )
 
 app.add_middleware(
