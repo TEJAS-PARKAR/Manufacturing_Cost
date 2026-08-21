@@ -259,10 +259,7 @@ class SupplierNegotiationService:
             counter_offer = supplier_quote
         elif variance <= 15:
             recommendation = "negotiate"
-            counter_offer = round(
-                expected_cost * 1.03,
-                2
-            )
+            counter_offer = expected_cost
         else:
             recommendation = "reject"
             counter_offer = expected_cost
@@ -1427,6 +1424,7 @@ CRITICAL RULES:
         # Allowance question answered
         session["awaiting_allowance_response"] = False
         if is_optimal:
+            session["negotiation"]["counter_offer"] = self._compute_expected_cost(data)
             session["history"].append(
                 {
                     "role": "assistant",
@@ -1462,7 +1460,7 @@ CRITICAL RULES:
                 "The quotation falls within our acceptable benchmark range "
                 "and may be considered for approval."
             )
-        counter_offer = round(expected * 1.03, 2)
+        counter_offer = expected
         challenge = self._build_negotiation_question(
             data,
             session
@@ -1611,7 +1609,6 @@ CRITICAL RULES:
         variance = 0.0
         if expected > 0:
             variance = round(((quote - expected) / expected) * 100, 2)
-
         if variance <= 3:
             reply = (
                 f"Thank you for your message. Your quoted cost of ₹{quote} is within our "
@@ -1620,7 +1617,7 @@ CRITICAL RULES:
             counter_offer = quote
             status = "accept"
         elif variance <= 15:
-            counter = round(expected * 1.03, 2)
+            counter = expected
             reply = (
                 f"Thank you for your message. Your quoted cost of ₹{quote} is slightly above "
                 f"our benchmark. We propose a counter-offer of ₹{counter}. "
@@ -1639,9 +1636,35 @@ CRITICAL RULES:
 
         return {"reply": reply, "counter_offer": counter_offer, "status": status}
 
+    def _calculate_progressive_counter_offer(
+        self,
+        expected_cost: float,
+        round_number: int
+    ) -> float:
+        """
+        Progressive Tata Motors negotiation logic.
+        Round 1 -> Expected Cost
+        Round 2 -> 33% of gap
+        Round 3 -> 66% of gap
+        Round 4+ -> Final approval ceiling (Expected + 3%)
+        """
+        ceiling = round(expected_cost * 1.03, 2)
+        if round_number <= 1:
+            return round(expected_cost, 2)
+        if round_number == 2:
+            return round(
+                expected_cost + ((ceiling - expected_cost) * 0.33),
+                2
+            )
+        if round_number == 3:
+            return round(
+                expected_cost + ((ceiling - expected_cost) * 0.66),
+                2
+            )
+        return ceiling
+
     def run_negotiation(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(employee_id, part_number)
-
         # ── Server-side negotiation gate ──
         if session.get("awaiting_allowance_response"):
             raise ValueError(
@@ -1854,62 +1877,104 @@ CRITICAL RULES:
                     supplier_offer = float(raw_offer)
             except Exception as e:
                 logger.warning("LLM negotiation failed, falling back: %s", str(e))
-
         # ---- STEP 2: regex only as a cheap sanity check (with % protection) ----
         if supplier_offer is None:
             supplier_offer = self._extract_offer_from_message(supplier_message)
-
         logger.debug("Negotiation: intent=%s, offer=%s, expected=%s", intent, supplier_offer, expected_cost)
-
         # ---- STEP 3+4: CODE owns the decision + counter-offer math (auditable) ----
         if supplier_offer is not None:
-            variance = round(((supplier_offer - expected_cost) / expected_cost) * 100, 2) if expected_cost > 0 else 0
-
+            variance = (
+                round(
+                    ((supplier_offer - expected_cost) / expected_cost) * 100,
+                    2
+                )
+                if expected_cost > 0
+                else 0
+            )
+            offer_rounds = len([
+                r
+                for r in session["negotiation"]["rounds"]
+                if (
+                    r.get("role") == "supplier"
+                    and r.get("intent") == "offer"
+                )
+            ])
+            round_number = offer_rounds + 1
+            previous_offer = session["negotiation"].get(
+                "last_supplier_offer"
+            )
+            supplier_moved = (
+                previous_offer is None
+                or supplier_offer < previous_offer
+            )
             if variance <= 3:
                 decision_reply = (
-                    f"Thank you. Your revised offer of ₹{supplier_offer:.2f} is within our "
-                    f"acceptable range. The quotation can now be submitted for approval."
+                    f"Thank you. Your revised offer of ₹{supplier_offer:.2f} "
+                    f"is within our acceptable range. "
+                    f"The quotation can now be submitted for approval."
                 )
                 counter_offer = supplier_offer
                 status = "accepted"
                 session["status"] = "submitted_for_review"
-            elif variance <= 15:
-                counter_offer = round(expected_cost * 1.03, 2)
-                challenge = self._build_negotiation_question(
-                    data,
-                    session
-                )
-                decision_reply = (
-                    f"Thank you for revising the offer to ₹{supplier_offer:.2f}. "
-                    f"Our counter-offer is ₹{counter_offer:.2f}. "
-                    f"{challenge}"
-                )
-                status = "continue"
             else:
-                counter_offer = round(expected_cost * 1.03, 2)
+                if supplier_moved:
+                    counter_offer = (
+                        self._calculate_progressive_counter_offer(
+                            expected_cost,
+                            round_number
+                        )
+                    )
+                else:
+                    counter_offer = (
+                        session["negotiation"].get(
+                            "counter_offer"
+                        )
+                        or expected_cost
+                    )
                 challenge = self._build_negotiation_question(
                     data,
                     session
                 )
-                decision_reply = (
-                    f"Your offer of ₹{supplier_offer:.2f} remains above our expected cost of "
-                    f"₹{expected_cost:.2f} ({variance}% variance). "
-                    f"Our counter-offer is ₹{counter_offer:.2f}. "
-                    f"{challenge}"
-                )
+                if variance <= 15:
+                    decision_reply = (
+                        f"Thank you for revising the offer to "
+                        f"₹{supplier_offer:.2f}. "
+                        f"Our counter-offer is "
+                        f"₹{counter_offer:.2f}. "
+                        f"{challenge}"
+                    )
+                else:
+                    decision_reply = (
+                        f"Your offer of ₹{supplier_offer:.2f} remains above "
+                        f"our expected cost of ₹{expected_cost:.2f} "
+                        f"({variance:.2f}% variance). "
+                        f"Our counter-offer is "
+                        f"₹{counter_offer:.2f}. "
+                        f"{challenge}"
+                    )
                 status = "continue"
-
-            # Prefer the LLM's natural phrasing, but numbers came from code above.
-            reply = decision_reply
-            result = {"reply": reply, "counter_offer": counter_offer, "status": status}
-
+            session["negotiation"]["last_supplier_offer"] = supplier_offer
+            result = {
+                "reply": decision_reply,
+                "counter_offer": counter_offer,
+                "status": status,
+            }
         else:
-            # No genuine price this turn → keep the conversation going with the LLM's reply.
             if llm_reply:
-                result = {"reply": llm_reply, "counter_offer": session["negotiation"].get("counter_offer", 0), "status": "continue"}
-            else:
-                result = self._negotiate_heuristic(data, supplier_message)  # no-key fallback
 
+                result = {
+                    "reply": llm_reply,
+                    "counter_offer": session["negotiation"].get(
+                        "counter_offer",
+                        expected_cost
+                    ),
+                    "status": "continue"
+                }
+            else:
+                result = self._negotiate_heuristic(
+                    data,
+                    supplier_message
+                )
         # ---- STEP 5: persist rounds + history ----
         session["negotiation"]["status"] = result["status"]
         session["negotiation"]["rounds"].append(
@@ -1921,7 +1986,6 @@ CRITICAL RULES:
         session["history"].append({"role": "supplier", "message": supplier_message,"timestamp": self._now_iso()})
         session["history"].append({"role": "assistant", "message": result["reply"],"timestamp": self._now_iso()})
         session["negotiation"]["counter_offer"] = result["counter_offer"]
-
         self._persist_session(session)
         return {"reply": result["reply"], "session": self._serialize_session(session)}
 
