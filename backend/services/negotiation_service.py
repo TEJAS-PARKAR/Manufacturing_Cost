@@ -105,7 +105,8 @@ class SupplierNegotiationService:
                 "counter_offer": 0,
                 "status": "pending",
                 "rounds": [],
-                "challenged_drivers": []
+                "challenged_drivers": [],
+                "resolved_drivers": []
             }
         }
         self._cache_session(key, session)
@@ -273,7 +274,8 @@ class SupplierNegotiationService:
             "negotiation_drivers": drivers,
             "status": "active",
             "rounds": [],
-            "challenged_drivers": []
+            "challenged_drivers": [],
+            "resolved_drivers": []
         }
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
@@ -415,7 +417,6 @@ class SupplierNegotiationService:
             session.get("extracted_data", {})
         )
         session.setdefault("sheet_optimization", {})
-
         # Preserve explicit persisted state on resume to avoid dropping the allowance gate.
         if "awaiting_allowance_response" not in session:
             extracted = session.get("extracted_data", {})
@@ -435,6 +436,14 @@ class SupplierNegotiationService:
             session["awaiting_allowance_response"] = bool(
                 session.get("awaiting_allowance_response", False)
             )
+        session.setdefault(
+            "negotiation",
+            {}
+        )
+        session["negotiation"].setdefault(
+            "resolved_drivers",
+            []
+        )
         return session
 
     def _validate_part_number(self, part_number: str) -> str:
@@ -1546,10 +1555,18 @@ CRITICAL RULES:
         return self._serialize_session(session)
 
 
-    def negotiate_with_supplier(self, extracted_data, supplier_message, history, quote, expected, variance):
+    def negotiate_with_supplier(
+        self,
+        extracted_data,
+        supplier_message,
+        history,
+        quote,
+        expected,
+        variance
+    ):
         breakdown = self._cost_breakdown(extracted_data)
-        prompt = f"""You are a Tata Motors Procurement Negotiation Expert.
-
+        prompt = f"""
+    You are a Tata Motors Procurement Negotiation Expert.
     Supplier's quoted total: ₹{quote}
     Our itemised expected cost breakdown (₹): {json.dumps(breakdown, indent=2)}
     Our expected total: ₹{expected}
@@ -1558,48 +1575,124 @@ CRITICAL RULES:
     Negotiation History:
     {json.dumps(history, indent=2)}
 
-    Latest Supplier Message: "{supplier_message}"
+    Latest Supplier Message:
+    "{supplier_message}"
 
     STRICT RULES:
-    - Only claim a cost is "included" if its value in the breakdown is > 0.
-    If profit/packing/transport are 0, DO NOT say they are included.
-    - If the supplier points to a cost we excluded, acknowledge it honestly and
-    challenge whether the AMOUNT is justified — never pretend it was counted.
-    - Numbers followed by "%" are variance, not a price offer.
 
-        Return JSON ONLY:
-    {{ "reply": "", "extracted_offer": null,
-       "intent": "offer|question|clarification|correction|agreement|rejection|other" }}
+    - Only claim a cost is included if it exists in our breakdown.
+    - Numbers followed by % are variance percentages, not offers.
+    - A cost component explanation is NOT a quotation offer.
 
-    INTENT DEFINITIONS:
-    - "correction": supplier says a value in the costing SHEET is wrong/mistaken
-      (e.g. "we entered it wrong", "the sheet has an error").
-    - "question": supplier is ASKING us something (e.g. "what is your final offer?").
-    - "clarification": supplier is explaining/elaborating, NOT reporting a sheet error.
-    - "offer": supplier states a NEW price.
-    - "agreement": supplier accepts our counter-offer.
-    - "rejection": supplier refuses to reduce further.
+    Return JSON ONLY:
+
+    {{
+        "reply": "",
+        "intent": "offer|question|clarification|correction|agreement|rejection|other",
+        "extracted_offer": null,
+        "resolved_driver": null
+    }}
+
+    INTENT DEFINITIONS
+
+    correction
+    - Supplier says sheet data is incorrect.
+    - Example:
+    "The sheet contains a mistake."
+    "Material rate was entered incorrectly."
+
+    question
+    - Supplier asks Tata Motors a question.
+
+    clarification
+    - Supplier explains a cost component.
+    - Supplier gives justification.
+    - Supplier explains packing, transport, profit, process cost etc.
+
+    offer
+    - Supplier proposes a NEW TOTAL quotation price.
+
+    agreement
+    - Supplier accepts our counter-offer.
+
+    rejection
+    - Supplier refuses to reduce price further.
+
+    IMPORTANT CLASSIFICATION EXAMPLES
+
+    "The packing cost is 7 rupees per part"
+    → clarification
+
+    "The transport cost is 3 rupees per part"
+    → clarification
+
+    "The box cost is 7 rupees per part"
+    → clarification
+
+    "The raw material rate is 62/kg"
+    → clarification
+
+    "We can offer 37 rupees per part"
+    → offer
+
+    "Our revised quotation is 37"
+    → offer
+
+    "Our final offer is 37"
+    → offer
+
+    "We are ready to supply at 37"
+    → offer
+
+    RESOLVED DRIVER RULES
+
+    If the supplier is explaining one of the following:
+
+    packing_cost
+    profit
+    conversion_cost
+    raw_material_cost
+    coating_cost
+    transport_cost
+    overhead_cost
+    icc_cost
+    rejection_cost
+
+    return the matching field name in:
+
+    "resolved_driver"
+
+    Otherwise return null.
     """
-
         payload = {
             "model": self.groq_model,
             "messages": [
-                {"role": "system", "content": "You are a Tata Motors procurement negotiation specialist."},
-                {"role": "user", "content": prompt},
+                {
+                    "role": "system",
+                    "content": "You are a Tata Motors procurement negotiation specialist."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             "temperature": 0.2,
             "response_format": {"type": "json_object"},
         }
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.groq_api_key}",
+                "Content-Type": "application/json"
+            },
             json=payload,
             timeout=30,
         )
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"].strip()
         if content.startswith("```"):
-            content = content.replace("```json", "").replace("```", "").strip()
+            content = content.replace("```json", "")
+            content = content.replace("```", "").strip()
         return json.loads(content)
 
     def _negotiate_heuristic(self, extracted_data: dict, supplier_message: str) -> dict:
@@ -1763,6 +1856,7 @@ CRITICAL RULES:
         supplier_offer = None
         llm_reply = None
         intent = "other"
+        resolved_driver = None
         if self.groq_api_key:
             try:
                 baseline_variance = round(((quote - expected_cost) / expected_cost) * 100, 2) if expected_cost > 0 else 0
@@ -1772,6 +1866,19 @@ CRITICAL RULES:
                 )
                 llm_reply = llm_out.get("reply")
                 intent = llm_out.get("intent", "other")
+                resolved_driver = llm_out.get("resolved_driver")
+                if resolved_driver:
+                    session["negotiation"].setdefault(
+                        "resolved_drivers",
+                        []
+                    )
+                    if (
+                        resolved_driver
+                        not in session["negotiation"]["resolved_drivers"]
+                    ):
+                        session["negotiation"]["resolved_drivers"].append(
+                            resolved_driver
+                        )
                 if intent == "correction":
                     reply = (
                         "Thank you for pointing this out. "
@@ -1828,6 +1935,7 @@ CRITICAL RULES:
                         "The quotation will now be submitted for Tata Motors review."
                     )
                     session["status"] = "submitted_for_review"
+                    session["negotiation"]["status"] = "accepted"
                     session["history"].append(
                         {
                             "role": "supplier",
@@ -1853,6 +1961,7 @@ CRITICAL RULES:
                         "However, the quotation remains above our expected benchmark. "
                         "At the current price, the quotation cannot be approved."
                     )
+                    session["negotiation"]["status"] = "rejected"
                     session["history"].append(
                         {
                             "role": "supplier",
@@ -1878,7 +1987,7 @@ CRITICAL RULES:
             except Exception as e:
                 logger.warning("LLM negotiation failed, falling back: %s", str(e))
         # ---- STEP 2: regex only as a cheap sanity check (with % protection) ----
-        if supplier_offer is None:
+        if supplier_offer is None and intent == "offer":
             supplier_offer = self._extract_offer_from_message(supplier_message)
         logger.debug("Negotiation: intent=%s, offer=%s, expected=%s", intent, supplier_offer, expected_cost)
         # ---- STEP 3+4: CODE owns the decision + counter-offer math (auditable) ----
@@ -1916,6 +2025,7 @@ CRITICAL RULES:
                 counter_offer = supplier_offer
                 status = "accepted"
                 session["status"] = "submitted_for_review"
+                session["negotiation"]["status"] = "accepted"
             else:
                 if supplier_moved:
                     counter_offer = (
@@ -1961,7 +2071,18 @@ CRITICAL RULES:
             }
         else:
             if llm_reply:
-
+                if (
+                    intent == "clarification"
+                    and resolved_driver
+                ):
+                    next_question = self._build_negotiation_question(
+                        data,
+                        session
+                    )
+                    if next_question:
+                        llm_reply = (
+                            f"{llm_reply}\n\n{next_question}"
+                        )
                 result = {
                     "reply": llm_reply,
                     "counter_offer": session["negotiation"].get(
@@ -2085,9 +2206,17 @@ CRITICAL RULES:
                 []
             )
         )
+        resolved = set(
+            session["negotiation"].get(
+                "resolved_drivers",
+                []
+            )
+        )
         drivers = [
-            d for d in self._rank_negotiation_drivers(data)
+            d
+            for d in self._rank_negotiation_drivers(data)
             if d["field"] not in challenged
+            and d["field"] not in resolved
         ]
         drivers = drivers[:1]
         if not drivers:
