@@ -5,6 +5,7 @@ import CostChart from './CostChart';
 import CostSummary from './CostSummary';
 import ChatHistory from './ChatHistory';
 import ExcelUpload from './ExcelUpload';
+import ExtractedDataPanel from './ExtractedDataPanel';
 import * as api from '../api';
 
 /** Round display value to 2dp */
@@ -198,6 +199,8 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
       ) : (
         <div className="alert alert-success">All mandatory fields available.</div>
       )}
+
+      <ExtractedDataPanel data={extracted} />
 
       {alert && <div className={`alert alert-${alert.type} fade-in`}>{alert.message}</div>}
 
