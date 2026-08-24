@@ -682,7 +682,12 @@ RETURN THESE EXACT KEYS (use null if not found):
   "width"               : number — same as part_width
   "length"              : number — same as part_length
 
-  "gross_weight"        : number — gross weight per piece in kg
+  "sheet_weight" : number — full sheet weight in kg
+
+  "gross_weight" : number — blank/component weight per piece in kg
+  IMPORTANT:
+  Do NOT map full sheet weight to gross_weight.
+  Full sheet weight must be returned as sheet_weight.
   "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
   "scrap_weight"        : number — scrap weight per piece in kg
   "blank_weight"        : number — blank weight per piece in kg
@@ -914,7 +919,33 @@ CRITICAL RULES:
                     normalized[field] = round(float(val), 2)
                 except (ValueError, TypeError):
                     normalized[field] = val
-
+        # -------------------------------------------
+        # Validate / Correct Gross Weight
+        # -------------------------------------------
+        blank_weight = normalized.get("blank_weight")
+        finished_weight = normalized.get("finished_weight")
+        scrap_weight = normalized.get("scrap_weight")
+        # Rule 1: If blank weight exists, use it as gross weight
+        if blank_weight and float(blank_weight) > 0:
+            normalized["gross_weight"] = round(float(blank_weight), 2)
+        # Rule 2: Otherwise derive from finished + scrap
+        elif finished_weight is not None and scrap_weight is not None:
+            normalized["gross_weight"] = round(float(finished_weight) + float(scrap_weight),2)
+        # Rule 3: Final fallback using dimensions
+        else:
+            part_l = normalized.get("part_length")
+            part_w = normalized.get("part_width")
+            part_t = normalized.get("part_thickness")
+            if part_l and part_w and part_t:
+                normalized["gross_weight"] = round(
+                    (
+                        float(part_l)
+                        * float(part_w)
+                        * float(part_t)
+                        * 7.85
+                    ) / 1_000_000,
+                    2
+                )
         if normalized.get("coating_cost") and not normalized.get("coating"):
             normalized["coating"] = "SURFACE PROTECTION"
 
