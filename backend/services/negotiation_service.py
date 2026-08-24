@@ -632,6 +632,8 @@ class SupplierNegotiationService:
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         llm_result = self._interpret_with_llm(raw_table) or {}
+        if isinstance(llm_result.get("extracted_data"), dict):
+            llm_result = llm_result["extracted_data"]
         dimensions = self._extract_dimensions_from_raw_table(
             raw_table.get("rows", [])
         )

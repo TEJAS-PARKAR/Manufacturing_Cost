@@ -86,6 +86,25 @@ def test_excel_upload_builds_raw_table_and_interpretation_layers() -> None:
     assert internal_session["raw_table"]["headers"] == ["Part Number", "Qty", "Material Grade", "Rate / Kg", "Surface Finish", "Process"]
 
 
+def test_wrapped_llm_extracted_data_is_preserved_in_response() -> None:
+    service = SupplierNegotiationService()
+    service._interpret_with_llm = lambda raw_table: {
+        "extracted_data": {
+            "quantity": 1200,
+            "material": "CRCA",
+            "material_rate": 65,
+            "coating": "POWDER COATING",
+        }
+    }
+
+    result = service._interpret_excel_table({"headers": [], "rows": []})
+
+    assert result["quantity"] == 1200
+    assert result["material"] == "CRCA"
+    assert result["material_rate"] == 65.0
+    assert result["coating"] == "POWDER COATING"
+
+
 def test_session_response_preserves_allowance_gate_state() -> None:
     service = SupplierNegotiationService()
 
