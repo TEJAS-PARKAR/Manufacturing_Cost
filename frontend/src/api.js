@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 // ---------- Token helpers (localStorage-based) ----------
 const TOKEN_KEY = 'auth_token';
@@ -159,4 +159,13 @@ export async function reopenSession(employeeId, partNumber) {
   const res = await apiFetch(`/supplier/session/reopen?${params}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Reopen session failed: ${res.statusText}`);
   return res.json();
-}
+}
+
+export async function listSessions(statusFilter = '') {
+  const params = new URLSearchParams();
+  if (statusFilter) params.append('status_filter', statusFilter);
+  const res = await apiFetch(`/supplier/sessions${params.toString() ? '?' + params.toString() : ''}`);
+  if (!res.ok) throw new Error(`Failed to list sessions: ${res.statusText}`);
+  return res.json();
+}
+

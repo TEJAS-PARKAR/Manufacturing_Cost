@@ -7,13 +7,7 @@ import ChatHistory from './ChatHistory';
 import ExcelUpload from './ExcelUpload';
 import ExtractedDataPanel from './ExtractedDataPanel';
 import * as api from '../api';
-
-/** Round display value to 2dp */
-function fmt(v) {
-  if (v === null || v === undefined || v === '' || v === '—') return '—';
-  const n = Number(v);
-  return isNaN(n) ? String(v) : n.toFixed(2);
-}
+import { fmt } from '../utils';
 
 /** Workflow steps for the gated flow */
 const WORKFLOW_STEPS = [

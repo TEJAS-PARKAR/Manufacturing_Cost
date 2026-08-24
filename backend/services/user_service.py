@@ -46,7 +46,7 @@ class UserService:
             "created_at": self._now_iso(),
         }
         self.collection.insert_one(user_doc)
-        return {"username": username, "role": role}
+        return {"username": username, "role": role, "password_hash": password_hash}
     
     def authenticate_and_get_role(self, username: str, password: str) -> Optional[str]:
         """Return the user's role if credentials are valid, else None."""

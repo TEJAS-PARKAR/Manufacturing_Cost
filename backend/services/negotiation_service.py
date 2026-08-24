@@ -9,6 +9,8 @@ import logging
 import math
 import os
 import re
+import threading
+import time
 from typing import Any
 import pandas as pd
 import requests
@@ -43,42 +45,66 @@ class SupplierNegotiationService:
 
     def __init__(self) -> None:
         self.sessions: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+        self._session_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._locks_guard = threading.Lock()
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         collection_name = os.getenv("MONGODB_COLLECTION", "supplier_sessions")
         self.mongo_collection = MongoConnection.get_collection(collection_name)
 
-    
-    def start_session(
-        self,
-        employee_id: str,
-        part_number: str
-    ) -> dict[str, Any]:
-        part_number = self._validate_part_number(part_number)
-        key = self._session_key(
-            employee_id,
-            part_number
-        )
-        # Check memory first
-        session = self.sessions.get(key)
-        if session is not None:
-            return self._serialize_session(session)
-        # Check MongoDB before creating
-        if self.mongo_collection is not None:
-            doc = self.mongo_collection.find_one(
-                {
-                    "_id": self._storage_key(
-                        employee_id,
-                        part_number
+    def _get_session_lock(self, employee_id: str, part_number: str) -> threading.Lock:
+        """Return a per-session lock, creating one if needed (thread-safe)."""
+        key = self._session_key(employee_id, part_number)
+        with self._locks_guard:
+            if key not in self._session_locks:
+                self._session_locks[key] = threading.Lock()
+            return self._session_locks[key]
+
+    def _safe_variance(self, quote: float, expected: float) -> float:
+        """Compute percentage variance safely, returning 0.0 when expected <= 0."""
+        if expected <= 0:
+            return 0.0
+        return round(((quote - expected) / expected) * 100, 2)
+
+    def _call_groq(self, payload: dict, timeout: int = 30, max_retries: int = 3) -> requests.Response:
+        """Call Groq API with exponential backoff retry on 429 / 5xx errors."""
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.groq_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=timeout,
+                )
+                if response.status_code == 429 or response.status_code >= 500:
+                    wait = (2 ** attempt)
+                    logger.warning(
+                        "Groq API returned %d, retrying in %ds (attempt %d/%d)",
+                        response.status_code, wait, attempt + 1, max_retries,
                     )
-                }
-            )
-            if doc is not None:
-                session = self._hydrate_session(doc)
-                self.sessions[key] = session
-                logger.info("Existing session loaded from MongoDB for %s:%s", employee_id, part_number)
-                return self._serialize_session(session)
-        # Create new session only if nothing found
+                    time.sleep(wait)
+                    last_exc = requests.HTTPError(response=response)
+                    continue
+                return response
+            except requests.RequestException as exc:
+                wait = (2 ** attempt)
+                logger.warning(
+                    "Groq API request failed: %s, retrying in %ds (attempt %d/%d)",
+                    str(exc), wait, attempt + 1, max_retries,
+                )
+                last_exc = exc
+                time.sleep(wait)
+        raise last_exc or RuntimeError("Groq API call failed after retries")
+
+    
+    def _create_new_session(self, employee_id: str, part_number: str) -> dict[str, Any]:
+        """Create, cache, persist, and return a fresh internal session dictionary."""
+        part_number = self._validate_part_number(part_number)
+        key = self._session_key(employee_id, part_number)
         session = {
             "employee_id": employee_id,
             "part_number": part_number,
@@ -112,6 +138,14 @@ class SupplierNegotiationService:
         self._cache_session(key, session)
         self._persist_session(session)
         logger.info("New session created for %s:%s", employee_id, part_number)
+        return session
+
+    def start_session(
+        self,
+        employee_id: str,
+        part_number: str
+    ) -> dict[str, Any]:
+        session = self._ensure_session(employee_id, part_number)
         return self._serialize_session(session)
 
     
@@ -128,6 +162,10 @@ class SupplierNegotiationService:
 
 
     def record_supplier_message(self, employee_id: str, part_number: str, message: str) -> dict[str, Any]:
+        with self._get_session_lock(employee_id, part_number):
+            return self._record_supplier_message_locked(employee_id, part_number, message)
+
+    def _record_supplier_message_locked(self, employee_id: str, part_number: str, message: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
         parsed = self._extract_from_message(message)
         missing_fields = set(session["missing_fields"])
@@ -155,6 +193,10 @@ class SupplierNegotiationService:
 
     
     def ingest_excel(self, employee_id, part_number, file_bytes, filename):
+        with self._get_session_lock(employee_id, part_number):
+            return self._ingest_excel_locked(employee_id, part_number, file_bytes, filename)
+
+    def _ingest_excel_locked(self, employee_id, part_number, file_bytes, filename):
         session = self._ensure_session(
             employee_id,
             part_number
@@ -256,16 +298,8 @@ class SupplierNegotiationService:
             extracted_data.get("total_cost", 0)
         ), 2)
         expected_cost = round(self._compute_expected_cost(extracted_data), 2)
-        variance = 0
-        if expected_cost > 0:
-            variance = round(
-                (
-                    (supplier_quote - expected_cost)
-                    / expected_cost
-                ) * 100,
-                2
-            )
-        elif supplier_quote > 0:
+        variance = self._safe_variance(supplier_quote, expected_cost)
+        if variance == 0.0 and supplier_quote > 0 and expected_cost <= 0:
             # Cannot compute meaningful variance without benchmark costs
             variance = 100.0
         if variance <= 3:
@@ -292,6 +326,10 @@ class SupplierNegotiationService:
         }
 
     def submit_for_review(self, employee_id: str, part_number: str) -> dict[str, Any]:
+        with self._get_session_lock(employee_id, part_number):
+            return self._submit_for_review_locked(employee_id, part_number)
+
+    def _submit_for_review_locked(self, employee_id: str, part_number: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
         session["status"] = "submitted_for_review"
         session["history"].append(
@@ -314,7 +352,57 @@ class SupplierNegotiationService:
             "benchmark_comparison": self._benchmark_comparison(session["extracted_data"]),
         }
 
+    def list_sessions(self, status_filter: str | None = None) -> list[dict[str, Any]]:
+        """List sessions, optionally filtered by status. Used by Tata reviewers."""
+        results: list[dict[str, Any]] = []
+        # Try MongoDB first for persistent data
+        if self.mongo_collection is not None:
+            query: dict[str, Any] = {}
+            if status_filter:
+                query["status"] = status_filter
+            try:
+                cursor = self.mongo_collection.find(
+                    query,
+                    {
+                        "_id": 0,
+                        "employee_id": 1,
+                        "part_number": 1,
+                        "status": 1,
+                        "extracted_data.material": 1,
+                        "extracted_data.total_cost": 1,
+                    },
+                ).sort("part_number", 1).limit(100)
+                for doc in cursor:
+                    extracted = doc.get("extracted_data", {})
+                    results.append({
+                        "employee_id": doc.get("employee_id", ""),
+                        "part_number": doc.get("part_number", ""),
+                        "status": doc.get("status", "active"),
+                        "material": extracted.get("material", "—"),
+                        "total_cost": extracted.get("total_cost"),
+                    })
+                return results
+            except Exception as exc:
+                logger.warning("MongoDB list_sessions failed: %s", str(exc))
+        # Fallback to in-memory sessions
+        for key, session in self.sessions.items():
+            if status_filter and session.get("status") != status_filter:
+                continue
+            extracted = session.get("extracted_data", {})
+            results.append({
+                "employee_id": session.get("employee_id", ""),
+                "part_number": session.get("part_number", ""),
+                "status": session.get("status", "active"),
+                "material": extracted.get("material", "—"),
+                "total_cost": extracted.get("total_cost"),
+            })
+        return results
+
     def approve_cost_inputs(self, employee_id: str, part_number: str, approval_payload: dict[str, Any]) -> dict[str, Any]:
+        with self._get_session_lock(employee_id, part_number):
+            return self._approve_cost_inputs_locked(employee_id, part_number, approval_payload)
+
+    def _approve_cost_inputs_locked(self, employee_id: str, part_number: str, approval_payload: dict[str, Any]) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
         approved = approval_payload.get("approved_values", {})
         session["extracted_data"].update(approved)
@@ -351,7 +439,7 @@ class SupplierNegotiationService:
                 session = self._hydrate_session(doc)
                 self._cache_session(key, session)
                 return session
-        return self.start_session(
+        return self._create_new_session(
             employee_id,
             part_number
         )
@@ -423,6 +511,7 @@ class SupplierNegotiationService:
     def _hydrate_session(self, document: dict[str, Any]) -> dict[str, Any]:
         session = dict(document)
         session.pop("_id", None)
+        session.setdefault("raw_table", {})
         session_key = session.get("session_key")
         if isinstance(session_key, list):
             session["session_key"] = tuple(session_key)
@@ -768,15 +857,7 @@ CRITICAL RULES:
                 len(raw_table.get("rows", [])),
                 len(raw_table.get("headers", []))
             )
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.groq_api_key}",
-                    "Content-Type": "application/json"
-                },
-                json=payload,
-                timeout=30
-            )
+            response = self._call_groq(payload, timeout=30)
             if response.status_code != 200:
                 logger.error(
                     "Groq Error %s: %s",
@@ -1403,6 +1484,10 @@ CRITICAL RULES:
         includes_cutting_allowance: bool = True,
     ) -> dict[str, Any]:
         """Validate supplier sheet against approved sheet sizes."""
+        with self._get_session_lock(employee_id, part_number):
+            return self._check_sheet_optimization_locked(employee_id, part_number, includes_cutting_allowance)
+
+    def _check_sheet_optimization_locked(self, employee_id, part_number, includes_cutting_allowance):
         session = self._ensure_session(employee_id, part_number)
         data = session["extracted_data"]
         result = self._validate_sheet_optimization(
@@ -1516,10 +1601,7 @@ CRITICAL RULES:
             data.get("total_cost", 0)
         )
         expected = self._compute_expected_cost(data)
-        variance = (
-            round(((quote - expected) / expected) * 100, 2)
-            if expected > 0 else 0
-        )
+        variance = self._safe_variance(quote, expected)
         if variance <= 3:
             return (
                 f"Sheet validation completed successfully.\n\n"
@@ -1550,6 +1632,10 @@ CRITICAL RULES:
         part_number: str,
         reason: str = "Cost exceeds expected benchmark"
     ):
+        with self._get_session_lock(employee_id, part_number):
+            return self._reject_offer_locked(employee_id, part_number, reason)
+
+    def _reject_offer_locked(self, employee_id, part_number, reason):
         session = self._ensure_session(
             employee_id,
             part_number
@@ -1583,9 +1669,12 @@ CRITICAL RULES:
         employee_id: str,
         part_number: str,
     ) -> dict[str, Any]:
-        """Re-open a rejected session so the supplier can re-negotiate.
+        """Re-open a rejected session so the supplier can re-negotiate."""
+        with self._get_session_lock(employee_id, part_number):
+            return self._reopen_after_rejection_locked(employee_id, part_number)
 
-        Resets status to 'active', clears sheet optimization (forces re-validation),
+    def _reopen_after_rejection_locked(self, employee_id, part_number):
+        """Resets status to 'active', clears sheet optimization (forces re-validation),
         and carries forward the rejection remark so the supplier can see why.
         """
         session = self._ensure_session(employee_id, part_number)
@@ -1739,15 +1828,7 @@ CRITICAL RULES:
             "temperature": 0.2,
             "response_format": {"type": "json_object"},
         }
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.groq_api_key}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=30,
-        )
+        response = self._call_groq(payload, timeout=30)
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"].strip()
         if content.startswith("```"):
@@ -1759,9 +1840,7 @@ CRITICAL RULES:
         """Rule-based fallback negotiation when no LLM key is configured."""
         quote = float(extracted_data.get("total_cost", 0))
         expected = self._compute_expected_cost(extracted_data)
-        variance = 0.0
-        if expected > 0:
-            variance = round(((quote - expected) / expected) * 100, 2)
+        variance = self._safe_variance(quote, expected)
         if variance <= 3:
             reply = (
                 f"Thank you for your message. Your quoted cost of ₹{quote} is within our "
@@ -1817,6 +1896,10 @@ CRITICAL RULES:
         return ceiling
 
     def run_negotiation(self, employee_id, part_number, supplier_message):
+        with self._get_session_lock(employee_id, part_number):
+            return self._run_negotiation_locked(employee_id, part_number, supplier_message)
+
+    def _run_negotiation_locked(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(employee_id, part_number)
         # ── Server-side negotiation gate ──
         if session.get("awaiting_allowance_response"):
@@ -1919,7 +2002,7 @@ CRITICAL RULES:
         resolved_driver = None
         if self.groq_api_key:
             try:
-                baseline_variance = round(((quote - expected_cost) / expected_cost) * 100, 2) if expected_cost > 0 else 0
+                baseline_variance = self._safe_variance(quote, expected_cost)
                 llm_out = self.negotiate_with_supplier(
                     data, supplier_message, session["negotiation"]["rounds"],
                     quote, expected_cost, baseline_variance,
@@ -2052,14 +2135,7 @@ CRITICAL RULES:
         logger.debug("Negotiation: intent=%s, offer=%s, expected=%s", intent, supplier_offer, expected_cost)
         # ---- STEP 3+4: CODE owns the decision + counter-offer math (auditable) ----
         if supplier_offer is not None:
-            variance = (
-                round(
-                    ((supplier_offer - expected_cost) / expected_cost) * 100,
-                    2
-                )
-                if expected_cost > 0
-                else 0
-            )
+            variance = self._safe_variance(supplier_offer, expected_cost)
             offer_rounds = len([
                 r
                 for r in session["negotiation"]["rounds"]

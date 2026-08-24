@@ -230,6 +230,17 @@ def get_supplier_review_dashboard(employee_id: str, part_number: str,
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
+@router.get("/supplier/sessions",
+            responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+def list_supplier_sessions(status_filter: str | None = None,
+                           identity: dict = Depends(get_identity)) -> list:
+    require_tata(identity)
+    try:
+        return negotiation_service.list_sessions(status_filter=status_filter)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
 @router.post("/supplier/session/approve", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
 def approve_supplier_session(employee_id: str, part_number: str, payload: dict | None = None,

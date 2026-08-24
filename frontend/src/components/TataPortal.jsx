@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import StatusBadge from './StatusBadge';
 import MetricCard from './MetricCard';
 import CostChart from './CostChart';
@@ -6,6 +6,7 @@ import CostSummary from './CostSummary';
 import ChatHistory from './ChatHistory';
 import ExtractedDataPanel from './ExtractedDataPanel';
 import * as api from '../api';
+import { fmt } from '../utils';
 
 const REJECT_REASONS = [
   'Cost Above Benchmark',
@@ -16,13 +17,6 @@ const REJECT_REASONS = [
   'Other',
 ];
 
-/** Round display value to 2dp */
-function fmt(v) {
-  if (v === null || v === undefined || v === '' || v === '—' || v === 0) return '—';
-  const n = Number(v);
-  return isNaN(n) ? String(v) : n.toFixed(2);
-}
-
 export default function TataPortal({ employeeId, partNumber }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -31,12 +25,36 @@ export default function TataPortal({ employeeId, partNumber }) {
   const [rejectReason, setRejectReason] = useState(REJECT_REASONS[0]);
   const [alert, setAlert] = useState(null);
 
+  // ── Session Discovery State ──
+  const [sessionsList, setSessionsList] = useState([]);
+  const [loadingList, setLoadingList] = useState(false);
+
+  const fetchSessionsList = async () => {
+    setLoadingList(true);
+    try {
+      const list = await api.listSessions();
+      setSessionsList(list || []);
+    } catch (err) {
+      console.warn('Could not fetch sessions list:', err);
+    } finally {
+      setLoadingList(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessionsList();
+  }, []);
+
   // ── Load review dashboard ──
-  const handleLoadDashboard = async () => {
+  const handleLoadDashboard = async (targetEmpId, targetPartNum) => {
+    const emp = targetEmpId || employeeId;
+    const part = targetPartNum || partNumber;
+    if (!emp || !part) return;
+
     setLoading(true);
     setAlert(null);
     try {
-      const result = await api.getReviewDashboard(employeeId, partNumber);
+      const result = await api.getReviewDashboard(emp, part);
       setDashboard(result);
     } catch (err) {
       setAlert({ type: 'error', message: `Review lookup failed: ${err.message}` });
@@ -52,9 +70,10 @@ export default function TataPortal({ employeeId, partNumber }) {
     try {
       await api.approveSession(employeeId, partNumber);
       setAlert({ type: 'success', message: 'Offer Approved Successfully!' });
-      // Reload dashboard
+      // Reload dashboard & list
       const refreshed = await api.getReviewDashboard(employeeId, partNumber);
       setDashboard(refreshed);
+      fetchSessionsList();
     } catch (err) {
       setAlert({ type: 'error', message: `Approval failed: ${err.message}` });
     } finally {
@@ -71,6 +90,7 @@ export default function TataPortal({ employeeId, partNumber }) {
       setAlert({ type: 'success', message: 'Offer Rejected.' });
       const refreshed = await api.getReviewDashboard(employeeId, partNumber);
       setDashboard(refreshed);
+      fetchSessionsList();
     } catch (err) {
       setAlert({ type: 'error', message: `Rejection failed: ${err.message}` });
     } finally {
@@ -85,16 +105,75 @@ export default function TataPortal({ employeeId, partNumber }) {
         Review supplier sessions, benchmark comparisons, and approve/reject final inputs.
       </p>
 
-      <button className="btn-primary" onClick={handleLoadDashboard} disabled={loading || !employeeId || !partNumber}>
-        {loading ? (
-          <span className="spinner-overlay">
-            <span className="spinner" />
-            Loading review dashboard…
-          </span>
+      {/* ── Sessions Discovery List ── */}
+      <div style={{ marginBottom: '1.5rem', background: '#F8F9FA', border: '1px solid #E9ECEF', borderRadius: '8px', padding: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <strong style={{ fontSize: '0.95rem' }}>Available Supplier Sessions</strong>
+          <button
+            className="btn-secondary"
+            onClick={fetchSessionsList}
+            disabled={loadingList}
+            style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+          >
+            {loadingList ? 'Refreshing…' : '🔄 Refresh List'}
+          </button>
+        </div>
+
+        {sessionsList.length === 0 ? (
+          <p style={{ fontSize: '0.85rem', color: '#6C757D', margin: 0 }}>
+            {loadingList ? 'Loading available sessions…' : 'No active sessions found. Enter credentials above or refresh.'}
+          </p>
         ) : (
-          'Load Review Dashboard'
+          <div style={{ overflowX: 'auto' }}>
+            <table className="sheet-util-table" style={{ margin: 0 }}>
+              <thead>
+                <tr>
+                  <th>Supplier ID</th>
+                  <th>Part Number</th>
+                  <th>Material</th>
+                  <th>Total Cost</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessionsList.map((s, idx) => (
+                  <tr key={idx}>
+                    <td><strong>{s.employee_id}</strong></td>
+                    <td>{s.part_number}</td>
+                    <td>{s.material || '—'}</td>
+                    <td>{s.total_cost ? `₹ ${fmt(s.total_cost)}` : '—'}</td>
+                    <td><StatusBadge status={s.status} /></td>
+                    <td>
+                      <button
+                        className="btn-primary"
+                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                        onClick={() => handleLoadDashboard(s.employee_id, s.part_number)}
+                        disabled={loading}
+                      >
+                        Inspect
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+        <button className="btn-primary" onClick={() => handleLoadDashboard()} disabled={loading || !employeeId || !partNumber}>
+          {loading ? (
+            <span className="spinner-overlay">
+              <span className="spinner" />
+              Loading review dashboard…
+            </span>
+          ) : (
+            'Load Review Dashboard (From Input)'
+          )}
+        </button>
+      </div>
 
       {alert && <div className={`alert alert-${alert.type}`}>{alert.message}</div>}
 
