@@ -181,23 +181,36 @@ class SupplierNegotiationService:
                     "source": "excel_reupload",
                     "timestamp": self._now_iso()
                 })
-        # Remove previous dimension values before applying new extraction
-        for field in [
-            "part_length",
-            "part_width",
-            "part_thickness",
-            "sheet_length",
-            "sheet_width",
-            "sheet_thickness",
-            "length",
-            "width",
-            "thickness",
-            "dimensions",
-            "allowance_applied",
-            "original_part_length",
-            "original_part_width",
-        ]:
-            session["extracted_data"].pop(field, None)
+        # Only clear old dimensions if new ones were successfully extracted
+        has_new_dimensions = any(
+            key in interpretation
+            for key in [
+                "part_length",
+                "part_width",
+                "part_thickness",
+                "sheet_length",
+                "sheet_width",
+                "sheet_thickness",
+                "dimensions",
+            ]
+        )
+        if has_new_dimensions:
+            for field in [
+                "part_length",
+                "part_width",
+                "part_thickness",
+                "sheet_length",
+                "sheet_width",
+                "sheet_thickness",
+                "length",
+                "width",
+                "thickness",
+                "dimensions",
+                "allowance_applied",
+                "original_part_length",
+                "original_part_width",
+            ]:
+                session["extracted_data"].pop(field, None)
         logger.debug("NEW INTERPRETATION = %s", interpretation)
         session["extracted_data"].update(interpretation)
         session["missing_fields"] = self._identify_missing_fields(
@@ -471,19 +484,33 @@ class SupplierNegotiationService:
 
     def _identify_missing_fields(self, extracted_data: dict[str, Any]) -> list[str]:
         missing = []
-        if not extracted_data.get("quantity"):
+        # Helper lambda to check if a value is genuinely empty/missing
+        is_empty = lambda v: v is None or v == ""
+        # 1. Check Quantity
+        if is_empty(extracted_data.get("quantity")):
             missing.append("quantity")
-        if not extracted_data.get("dimensions"):
+        # 2. Check Dimensions
+        has_individual_dims = all(
+            not is_empty(extracted_data.get(dim)) 
+            for dim in ["part_length", "part_width", "part_thickness"]
+        )
+        has_fallback_dims = not is_empty(extracted_data.get("dimensions"))
+        if not (has_individual_dims or has_fallback_dims):
             missing.append("dimensions")
-        if (not extracted_data.get("material") and not extracted_data.get("material_grade")):
+        # 3. Check Material
+        if is_empty(extracted_data.get("material")) and is_empty(extracted_data.get("material_grade")):
             missing.append("material")
-        if not extracted_data.get("material_rate"):
+        # 4. Check Material Rate
+        if is_empty(extracted_data.get("material_rate")):
             missing.append("material_rate")
-        if not extracted_data.get("coating") and not extracted_data.get("coating_cost"):
+        # 5. Check Coating
+        if is_empty(extracted_data.get("coating")) and is_empty(extracted_data.get("coating_cost")):
             missing.append("coating")
-        if not extracted_data.get("process_information"):
+        # 6. Check Process Information (Assuming it's a list/dict, check for falsy empty collections)
+        if not extracted_data.get("process_information"): 
             missing.append("process_information")
         return missing
+
 
     def _recommendation(self, extracted_data: dict[str, Any]) -> str:
         material_rate = float(extracted_data.get("material_rate") or 0)
