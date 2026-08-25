@@ -225,7 +225,7 @@ class SupplierNegotiationService:
                 })
         # Only clear old dimensions if new ones were successfully extracted
         has_new_dimensions = any(
-            key in interpretation
+            interpretation.get(key) not in [None, "", 0]
             for key in [
                 "part_length",
                 "part_width",
@@ -233,9 +233,8 @@ class SupplierNegotiationService:
                 "sheet_length",
                 "sheet_width",
                 "sheet_thickness",
-                "dimensions",
             ]
-        )
+        ) or bool(interpretation.get("dimensions"))
         if has_new_dimensions:
             for field in [
                 "part_length",
