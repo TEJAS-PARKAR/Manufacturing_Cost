@@ -938,166 +938,128 @@ CRITICAL RULES:
                 normalized["quantity"] = int(float(values["quantity"]))
             except (ValueError, TypeError):
                 pass
+        # --------------------------------------------------
+        # SAFE DIMENSION NORMALIZATION
+        # --------------------------------------------------
         if values.get("dimensions"):
             if isinstance(values["dimensions"], list):
-                normalized["dimensions"] = [float(item) for item in values["dimensions"]]
-        if (
-            values.get("thickness") is not None
-            and values.get("width") is not None
-            and values.get("length") is not None
-        ):
-            try:
-                normalized["dimensions"] = [
-                    round(float(values["thickness"]), 2),
-                    round(float(values["width"]), 2),
-                    round(float(values["length"]), 2),
-                ]
-            except (ValueError, TypeError):
-                pass
-
-        # --- Handle separate sheet vs part dimensions ---
+                try:
+                    normalized["dimensions"] = [
+                        float(item)
+                        for item in values["dimensions"]
+                        if float(item) > 0
+                    ]
+                except Exception:
+                    pass
         for prefix in ("sheet", "part"):
             for dim in ("length", "width", "thickness"):
                 key = f"{prefix}_{dim}"
                 val = values.get(key)
-                if val is not None:
-                    try:
-                        normalized[key] = round(float(val), 2)
-                    except (ValueError, TypeError):
-                        pass
 
-        # Populate part_* from old fields if not already set
-        if not normalized.get("part_length") and values.get("length") is not None:
-            normalized["part_length"] = round(float(values["length"]), 2)
-        if not normalized.get("part_width") and values.get("width") is not None:
-            normalized["part_width"] = round(float(values["width"]), 2)
-        if not normalized.get("part_thickness") and values.get("thickness") is not None:
-            normalized["part_thickness"] = round(float(values["thickness"]), 2)
-
-        # Populate sheet_* from old fields if not already set
-        if not normalized.get("sheet_length"):
-            normalized["sheet_length"] = normalized.get("part_length", 0)
-        if not normalized.get("sheet_width"):
-            normalized["sheet_width"] = normalized.get("part_width", 0)
-        if not normalized.get("sheet_thickness"):
-            normalized["sheet_thickness"] = normalized.get("part_thickness", 0)
-
-        # Rebuild backward-compat dimensions from part fields
-        if normalized.get("part_thickness") and normalized.get("part_width") and normalized.get("part_length"):
+                if val in [None, ""]:
+                    continue
+                try:
+                    num = float(val)
+                    # IGNORE INVALID ZEROS
+                    if num <= 0:
+                        continue
+                    normalized[key] = round(num, 2)
+                except (ValueError, TypeError):
+                    continue
+        # Legacy dimensions
+        for key in ("length", "width", "thickness"):
+            val = values.get(key)
+            if val in [None, ""]:
+                continue
+            try:
+                num = float(val)
+                if num <= 0:
+                    continue
+                normalized[key] = round(num, 2)
+            except (ValueError, TypeError):
+                continue
+        # Populate part dimensions from legacy values
+        if (
+            "part_length" not in normalized
+            and normalized.get("length")
+        ):
+            normalized["part_length"] = normalized["length"]
+        if (
+            "part_width" not in normalized
+            and normalized.get("width")
+        ):
+            normalized["part_width"] = normalized["width"]
+        if (
+            "part_thickness" not in normalized
+            and normalized.get("thickness")
+        ):
+            normalized["part_thickness"] = normalized["thickness"]
+        # Populate sheet dimensions from part dimensions ONLY
+        # if sheet dimensions are truly missing
+        if "sheet_length" not in normalized:
+            if normalized.get("part_length"):
+                normalized["sheet_length"] = normalized["part_length"]
+        if "sheet_width" not in normalized:
+            if normalized.get("part_width"):
+                normalized["sheet_width"] = normalized["part_width"]
+        if "sheet_thickness" not in normalized:
+            if normalized.get("part_thickness"):
+                normalized["sheet_thickness"] = normalized["part_thickness"]
+        # Rebuild dimensions only if all 3 exist
+        if (
+            normalized.get("part_thickness")
+            and normalized.get("part_width")
+            and normalized.get("part_length")
+        ):
             normalized["dimensions"] = [
                 normalized["part_thickness"],
                 normalized["part_width"],
                 normalized["part_length"],
             ]
-
-        # --- Handle material (may be string, list-of-dicts, or stringified list) ---
-        raw_material = values.get("material")
-        material = self._extract_material_name(raw_material)
-        if material:
-            normalized["material"] = material
-
-        if values.get("material_rate") is not None:
-            try:
-                normalized["material_rate"] = float(values["material_rate"])
-            except (ValueError, TypeError):
-                pass
-
-        coating = self._normalize_coating(values.get("coating"))
-        if coating:
-            normalized["coating"] = coating
-
-        process_information = values.get("process_information")
-        if process_information and isinstance(process_information, list):
-            processes = []
-            for item in process_information:
-                if isinstance(item, dict):
-                    processes.append(
-                        {
-                            "process": item.get("process"),
-                            "cost": item.get("cost", 0)
-                        }
-                    )
-                elif isinstance(item, str):
-                    processes.append(
-                        {
-                            "process": self._normalize_process(item),
-                            "cost": 0
-                        }
-                    )
-            normalized["process_information"] = processes
-
-        # Additional fields extracted by Groq (all rounded to 2 dp)
+        logger.warning(
+            "NORMALIZED_DIMENSIONS=%s",
+            {
+                k: normalized.get(k)
+                for k in [
+                    "sheet_length",
+                    "sheet_width",
+                    "sheet_thickness",
+                    "part_length",
+                    "part_width",
+                    "part_thickness",
+                    "dimensions",
+                ]
+            }
+        )
+        # Process remaining fields
         for field in [
-            "material_grade", "thickness", "width", "length",
-            "finished_weight", "scrap_weight", "blank_weight",
+            "material",
+            "material_grade",
+            "material_rate",
+            "coating",
+            "process_information",
+            "finished_weight",
+            "scrap_weight",
+            "blank_weight",
             "gross_weight",
-            "raw_material_cost", "conversion_cost", "coating_cost",
-            "overhead_cost", "icc_cost", "rejection_cost",
-            "profit", "packing_cost", "transport_cost",
+            "sheet_weight",
+            "raw_material_cost",
+            "conversion_cost",
+            "coating_cost",
+            "overhead_cost",
+            "icc_cost",
+            "rejection_cost",
+            "profit",
+            "packing_cost",
+            "transport_cost",
             "total_cost",
         ]:
-            val = values.get(field)
-            if val is not None:
-                try:
-                    normalized[field] = round(float(val), 2)
-                except (ValueError, TypeError):
-                    normalized[field] = val
-        # -------------------------------------------
-        # Validate / Correct Gross Weight
-        # -------------------------------------------
-        blank_weight = normalized.get("blank_weight")
-        finished_weight = normalized.get("finished_weight")
-        scrap_weight = normalized.get("scrap_weight")
-        # Rule 1: If blank weight exists, use it as gross weight
-        if blank_weight and float(blank_weight) > 0:
-            normalized["gross_weight"] = round(float(blank_weight), 2)
-        # Rule 2: Otherwise derive from finished + scrap
-        elif finished_weight is not None and scrap_weight is not None:
-            normalized["gross_weight"] = round(float(finished_weight) + float(scrap_weight),2)
-        # Rule 3: Final fallback using dimensions
-        else:
-            part_l = normalized.get("part_length")
-            part_w = normalized.get("part_width")
-            part_t = normalized.get("part_thickness")
-            if part_l and part_w and part_t:
-                normalized["gross_weight"] = round(
-                    (
-                        float(part_l)
-                        * float(part_w)
-                        * float(part_t)
-                        * 7.85
-                    ) / 1_000_000,
-                    2
-                )
-        if normalized.get("coating_cost") and not normalized.get("coating"):
-            normalized["coating"] = "SURFACE PROTECTION"
-
-        # --- Post-process: fill missing cost fields from process_information ---
+            value = values.get(field)
+            if value is None or value == "":
+                continue
+            normalized[field] = value
+        # Populate missing cost fields from process info
         self._postprocess_from_process_info(normalized)
-
-        # --- If material_rate still missing, try to extract from material list ---
-        if not normalized.get("material_rate") and isinstance(raw_material, list):
-            for entry in raw_material:
-                if isinstance(entry, dict):
-                    rate = entry.get("MATERIAL_RATE") or entry.get("material_rate")
-                    if rate and float(rate) > 0:
-                        normalized["material_rate"] = float(rate)
-                        break
-
-        # --- If quantity still missing, try to extract from material list ---
-        if not normalized.get("quantity") and isinstance(raw_material, list):
-            for entry in raw_material:
-                if isinstance(entry, dict):
-                    qty = entry.get("QUANTITY") or entry.get("quantity")
-                    if qty is not None:
-                        try:
-                            q = int(float(qty))
-                            if q > 0:
-                                normalized["quantity"] = q
-                                break
-                        except (ValueError, TypeError):
-                            pass
-
         return normalized
 
     def _extract_material_name(self, raw_material: Any) -> str | None:
