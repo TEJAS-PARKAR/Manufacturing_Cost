@@ -736,6 +736,10 @@ class SupplierNegotiationService:
                     if value is not None and value != ""
                 }
             )
+        logger.warning("RAW_HEADERS=%s", raw_table.get("headers"))
+        logger.warning("DETERMINISTIC=%s", deterministic)
+        logger.warning("LLM_RESULT=%s", llm_result)
+        logger.warning("INTERPRETED=%s", interpreted)
         normalized = self._normalize_interpreted_values(interpreted)
         if normalized:
             return normalized
