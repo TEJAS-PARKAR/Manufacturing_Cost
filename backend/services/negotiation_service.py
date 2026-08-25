@@ -721,14 +721,28 @@ class SupplierNegotiationService:
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         llm_result = self._interpret_with_llm(raw_table) or {}
-        if isinstance(llm_result.get("extracted_data"), dict):
+        if isinstance(llm_result, dict) and isinstance(llm_result.get("extracted_data"), dict):
             llm_result = llm_result["extracted_data"]
         dimensions = self._extract_dimensions_from_raw_table(
             raw_table.get("rows", [])
         )
-        llm_result.update(dimensions)
-        if llm_result:
-            return self._normalize_interpreted_values(llm_result)
+        deterministic = self._interpret_from_headers(raw_table)
+        deterministic.update(dimensions)
+        interpreted = dict(deterministic)
+        if isinstance(llm_result, dict):
+            interpreted.update(
+                {
+                    key: value
+                    for key, value in llm_result.items()
+                    if value is not None and value != ""
+                }
+            )
+        normalized = self._normalize_interpreted_values(interpreted)
+        if normalized:
+            return normalized
+        return {}
+
+    def _interpret_from_headers(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         headers = [self._normalize_header(header) for header in raw_table.get("headers", [])]
         rows = raw_table.get("rows", [])
         if not headers or not rows:

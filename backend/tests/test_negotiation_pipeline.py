@@ -105,6 +105,27 @@ def test_wrapped_llm_extracted_data_is_preserved_in_response() -> None:
     assert result["coating"] == "POWDER COATING"
 
 
+def test_empty_llm_interpretation_falls_back_to_headers() -> None:
+    service = SupplierNegotiationService()
+    service._interpret_with_llm = lambda raw_table: {
+        "quantity": None,
+        "material": None,
+        "material_rate": None,
+        "coating": None,
+        "process_information": None,
+    }
+
+    result = service._interpret_excel_table({
+        "headers": ["quantity", "material", "material_rate", "coating", "process_information"],
+        "rows": [[1200, "CRCA", 65, "POWDER COATING", "LASER CUTTING"]],
+    })
+
+    assert result["quantity"] == 1200
+    assert result["material"] == "CRCA"
+    assert result["material_rate"] == 65.0
+    assert result["coating"] == "POWDER COATING"
+
+
 def test_session_response_preserves_allowance_gate_state() -> None:
     service = SupplierNegotiationService()
 
