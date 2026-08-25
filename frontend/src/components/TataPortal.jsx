@@ -4,7 +4,6 @@ import MetricCard from './MetricCard';
 import CostChart from './CostChart';
 import CostSummary from './CostSummary';
 import ChatHistory from './ChatHistory';
-import ExtractedDataPanel from './ExtractedDataPanel';
 import * as api from '../api';
 import { fmt } from '../utils';
 
@@ -214,7 +213,6 @@ export default function TataPortal({ employeeId, partNumber }) {
               <div className="alert alert-success">All mandatory fields available.</div>
             )}
 
-            <ExtractedDataPanel data={extracted} />
 
             {/* ── Sheet Optimization Result (if available) ── */}
             {sheetOpt && sheetOpt.is_optimal !== undefined && (
