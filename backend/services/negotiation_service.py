@@ -675,10 +675,21 @@ class SupplierNegotiationService:
         workbook = load_workbook(buffer, data_only=True)
         worksheet = workbook.active
         rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
-        headers = [self._clean_cell(value) for value in rows[0]] if rows else []
+        for i, row in enumerate(rows[:30]):
+            logger.warning("ROW_%s=%s", i, row)
+        # Find first non-empty row and treat it as header row
+        header_idx = 0
+        for i, row in enumerate(rows):
+            cleaned = [self._clean_cell(v) for v in row]
+            if any(str(x).strip() for x in cleaned):
+                header_idx = i
+                break
+        headers = [self._clean_cell(value) for value in rows[header_idx]]
         data_rows = []
-        for row in rows[1:]:
-            data_rows.append([self._clean_cell(value) for value in row])
+        for row in rows[header_idx + 1:]:
+            data_rows.append(
+                [self._clean_cell(value) for value in row]
+            )
         dataframe = pd.DataFrame(data_rows, columns=headers) if headers else pd.DataFrame(data_rows)
         return {
             "sheet_name": worksheet.title,
@@ -691,31 +702,45 @@ class SupplierNegotiationService:
 
 
     def _extract_dimensions_from_raw_table(self, rows):
+        result = {}
         for row in rows:
             text = " ".join(
-                str(x)
+                str(x).strip().upper()
                 for x in row
-                if x is not None
-            ).upper()
+                if x not in [None, ""]
+            )
+            nums = []
+            for item in row:
+                try:
+                    nums.append(float(item))
+                except (ValueError, TypeError):
+                    pass
+            # Full Sheet Size
+            if "FULL SHEET" in text and len(nums) >= 3:
+                result.update({
+                    "sheet_thickness": nums[0],
+                    "sheet_width": nums[1],
+                    "sheet_length": nums[2],
+                })
+            # Blank Size / Shear Size
             if (
-                "TH" in text
-                and "WD" in text
-                and "LG" in text
-            ):
-                nums = []
-                for item in row:
-                    try:
-                        nums.append(float(item))
-                    except (ValueError, TypeError):
-                        pass
-                if len(nums) >= 3:
-                    return {
-                        "thickness": nums[0],
-                        "width": nums[1],
-                        "length": nums[2],
-                        "dimensions": nums[:3]
-                    }
-        return {}
+                "BLANK SIZE" in text
+                or "SHEAR SIZE" in text
+            ) and len(nums) >= 3:
+                result.update({
+                    "part_thickness": nums[0],
+                    "part_width": nums[1],
+                    "part_length": nums[2],
+                    "thickness": nums[0],
+                    "width": nums[1],
+                    "length": nums[2],
+                    "dimensions": [
+                        nums[0],
+                        nums[1],
+                        nums[2]
+                    ]
+                })
+        return result
 
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
@@ -780,13 +805,14 @@ class SupplierNegotiationService:
             return {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
-            rows_to_send = raw_table.get("rows", [])[:50]
+            rows_to_send = raw_table.get("rows", [])[:20]
             row_note = ""
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
 
             payload = {
                 "model": self.groq_model,
+                "max_completion_tokens": 1200,
                 "messages": [
                     {
                         "role": "system",
