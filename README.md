@@ -60,7 +60,7 @@ pieces_normal  = floor(sheet_L / eff_L) × floor(sheet_W / eff_W)
 pieces_rotated = floor(sheet_L / eff_W) × floor(sheet_W / eff_L)
 pieces = max(normal, rotated)
 
-weight_per_part = (sheet_L × sheet_W × thickness × 7.85) / (10⁶ × pieces)
+weight_per_part = (sheet_L × sheet_W × thickness × 7.854) / (10⁶ × pieces)
 ```
 
 The sheet with the **most parts** (lowest weight per part) is selected as optimal. If the supplier's sheet does not match, negotiation is blocked until the costing sheet is revised.

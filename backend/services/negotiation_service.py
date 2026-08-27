@@ -1373,7 +1373,7 @@ CRITICAL RULES:
 
         Selection criteria:
         Lowest Weight Per Part =
-        (Sheet Length × Sheet Width × Thickness × 7.85 / 10^6)
+        (Sheet Length × Sheet Width × Thickness × 7.854 / 10^6)
         / Number Of Parts Fitting
 
         This follows the procurement requirement provided by Tata Motors.
@@ -1432,7 +1432,7 @@ CRITICAL RULES:
                     sheet_l
                     * sheet_w
                     * thickness
-                    * 7.85
+                    * 7.854
                 ) / 1_000_000
                 weight_per_part = sheet_weight / pieces
             # Normalize size for display
@@ -1570,6 +1570,7 @@ CRITICAL RULES:
                 float(adjusted_width),
                 float(adjusted_length),
             ]
+            self._recalculate_adjusted_values(data)
             data["allowance_applied"] = True
             logger.debug(
                 "Cutting allowance applied. "
@@ -2419,3 +2420,51 @@ CRITICAL RULES:
             2
         )
     
+
+    def _recalculate_adjusted_values(self, data: dict[str, Any]) -> None:
+        """
+        Recalculate values affected by cutting allowance.
+        """
+        length = float(
+            data.get("part_length")
+            or data.get("length")
+            or 0
+        )
+        width = float(
+            data.get("part_width")
+            or data.get("width")
+            or 0
+        )
+        thickness = float(
+            data.get("part_thickness")
+            or data.get("sheet_thickness")
+            or data.get("thickness")
+            or 0
+        )
+        if length <= 0 or width <= 0 or thickness <= 0:
+            return
+        # Blank / Gross Weight
+        gross_weight = (
+            length * width * thickness * 7.854
+        ) / 1_000_000
+        data["gross_weight"] = round(gross_weight, 3)
+        data["blank_weight"] = round(gross_weight, 3)
+        # Scrap Weight
+        finished_weight = float(
+            data.get("finished_weight") or 0
+        )
+        if finished_weight > 0:
+            data["scrap_weight"] = round(
+                gross_weight - finished_weight,
+                3
+            )
+        # Raw Material Cost (if rate exists)
+        material_rate = float(
+            data.get("material_rate") or 0
+        )
+        if material_rate > 0:
+            data["raw_material_cost"] = round(
+                gross_weight * material_rate,
+                2
+            )
+        
