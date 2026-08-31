@@ -2455,16 +2455,8 @@ CRITICAL RULES:
         )
         if finished_weight > 0:
             data["scrap_weight"] = round(
-                gross_weight - finished_weight,
+                max(0, gross_weight - finished_weight),
                 3
             )
-        # Raw Material Cost (if rate exists)
-        material_rate = float(
-            data.get("material_rate") or 0
-        )
-        if material_rate > 0:
-            data["raw_material_cost"] = round(
-                gross_weight * material_rate,
-                2
-            )
+            
         
