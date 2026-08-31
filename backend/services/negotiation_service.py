@@ -846,15 +846,15 @@ RETURN THESE EXACT KEYS (use null if not found):
   "width"               : number — same as part_width
   "length"              : number — same as part_length
 
-  "sheet_weight" : number — full sheet weight in kg
+  "gross_weight" : number — weight per component
+  (gross_weight = blank_weight / number_of_parts)
 
-  "gross_weight" : number — blank/component weight per piece in kg
   IMPORTANT:
   Do NOT map full sheet weight to gross_weight.
-  Full sheet weight must be returned as sheet_weight.
+  Full sheet weight must be returned as blank_weight.
   "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
   "scrap_weight"        : number — scrap weight per piece in kg
-  "blank_weight"        : number — blank weight per piece in kg
+  "blank_weight"        : number — full sheet weight in kg
   "raw_material_cost"   : number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")
   "conversion_cost"     : number — total conversion cost per piece (look for "TOTAL CON. COST")
   "coating_cost"        : number — sum of all coating/surface protection costs per piece
@@ -1075,7 +1075,6 @@ CRITICAL RULES:
             "scrap_weight",
             "blank_weight",
             "gross_weight",
-            "sheet_weight",
             "raw_material_cost",
             "conversion_cost",
             "coating_cost",
@@ -1431,13 +1430,13 @@ CRITICAL RULES:
             if pieces <= 0:
                 weight_per_part = float("inf")
             else:
-                sheet_weight = (
+                blank_weight = (
                     sheet_l
                     * sheet_w
                     * thickness
                     * 7.854
                 ) / 1_000_000
-                weight_per_part = sheet_weight / pieces
+                weight_per_part = blank_weight / pieces
             # Normalize size for display
             display_l, display_w = sorted(
                 [sheet_l, sheet_w]
@@ -2424,43 +2423,22 @@ CRITICAL RULES:
         )
     
 
-    def _recalculate_adjusted_values(self, data: dict[str, Any]) -> None:
-        """
-        Recalculate values affected by cutting allowance.
-        """
-        length = float(
-            data.get("part_length")
-            or data.get("length")
-            or 0
+    def _recalculate_adjusted_values(
+        self,
+        data: dict[str, Any]
+    ) -> None:
+        gross_weight = float(
+            data.get("gross_weight") or 0
         )
-        width = float(
-            data.get("part_width")
-            or data.get("width")
-            or 0
-        )
-        thickness = float(
-            data.get("part_thickness")
-            or data.get("sheet_thickness")
-            or data.get("thickness")
-            or 0
-        )
-        if length <= 0 or width <= 0 or thickness <= 0:
-            return
-        # Blank / Gross Weight
-        gross_weight = (
-            length * width * thickness * 7.854
-        ) / 1_000_000
-        data["gross_weight"] = round(gross_weight, 3)
-        data["blank_weight"] = round(gross_weight, 3)
-        # Scrap Weight
         finished_weight = float(
             data.get("finished_weight") or 0
         )
-        if finished_weight > 0:
+        if gross_weight > 0 and finished_weight > 0:
             data["scrap_weight"] = round(
                 max(0, gross_weight - finished_weight),
                 3
             )
+
 
     def _recalculate_dimension_weights(self, data: dict[str, Any]) -> None:
         length = float(
@@ -2481,17 +2459,35 @@ CRITICAL RULES:
         )
         if length <= 0 or width <= 0 or thickness <= 0:
             return
-        gross_weight = (
-            length * width * thickness * 7.854
-        ) / 1_000_000
-        data["gross_weight"] = round(gross_weight, 3)
-        # data["blank_weight"] = round(gross_weight, 3)
-        finished_weight = float(
-            data.get("finished_weight") or 0
+        # ------------------------------------------------
+        # Blank Weight = Optimal Full Sheet Weight
+        # ------------------------------------------------
+        optimization = self._validate_sheet_optimization(
+            data,
+            includes_cutting_allowance=True
         )
-        if finished_weight > 0:
-            data["scrap_weight"] = round(
-                max(0, gross_weight - finished_weight),
-                3
-            ) 
-        
+        best_option = optimization.get("best_option")
+        if best_option and best_option.get("num_parts", 0) > 0:
+            sheet_length = best_option["sheet_length"]
+            sheet_width = best_option["sheet_width"]
+            blank_weight = (
+                sheet_length
+                * sheet_width
+                * thickness
+                * 7.854
+            ) / 1_000_000
+            data["blank_weight"] = round(blank_weight, 3)
+            gross_weight = (
+                blank_weight
+                / best_option["num_parts"]
+            )
+            data["gross_weight"] = round(gross_weight, 3)
+            finished_weight = float(
+                data.get("finished_weight") or 0
+            )
+            if finished_weight > 0:
+                data["scrap_weight"] = round(
+                    max(0, gross_weight - finished_weight),
+                    3
+                )
+
