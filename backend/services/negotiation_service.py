@@ -254,6 +254,9 @@ class SupplierNegotiationService:
                 session["extracted_data"].pop(field, None)
         logger.debug("NEW INTERPRETATION = %s", interpretation)
         session["extracted_data"].update(interpretation)
+        self._recalculate_dimension_weights(
+            session["extracted_data"]
+        )
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
@@ -1570,7 +1573,7 @@ CRITICAL RULES:
                 float(adjusted_width),
                 float(adjusted_length),
             ]
-            self._recalculate_adjusted_values(data)
+            self._recalculate_dimension_weights(data)
             data["allowance_applied"] = True
             logger.debug(
                 "Cutting allowance applied. "
@@ -2458,5 +2461,37 @@ CRITICAL RULES:
                 max(0, gross_weight - finished_weight),
                 3
             )
-            
+
+    def _recalculate_dimension_weights(self, data: dict[str, Any]) -> None:
+        length = float(
+            data.get("part_length")
+            or data.get("length")
+            or 0
+        )
+        width = float(
+            data.get("part_width")
+            or data.get("width")
+            or 0
+        )
+        thickness = float(
+            data.get("part_thickness")
+            or data.get("sheet_thickness")
+            or data.get("thickness")
+            or 0
+        )
+        if length <= 0 or width <= 0 or thickness <= 0:
+            return
+        gross_weight = (
+            length * width * thickness * 7.854
+        ) / 1_000_000
+        data["gross_weight"] = round(gross_weight, 3)
+        # data["blank_weight"] = round(gross_weight, 3)
+        finished_weight = float(
+            data.get("finished_weight") or 0
+        )
+        if finished_weight > 0:
+            data["scrap_weight"] = round(
+                max(0, gross_weight - finished_weight),
+                3
+            ) 
         
