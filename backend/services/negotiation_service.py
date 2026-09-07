@@ -747,14 +747,18 @@ class SupplierNegotiationService:
 
 
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
-        llm_result = self._interpret_with_llm(raw_table) or {}
+        rows = raw_table.get("rows", [])
+        dimensions = self._extract_dimensions_from_raw_table(rows)
+        cost_fields = self._extract_cost_fields_from_rows(rows)
+        deterministic = {}
+        deterministic.update(dimensions)
+        deterministic.update(cost_fields)
+        llm_result = {}
+        # Only call Groq if important fields are still missing
+        if not deterministic.get("material") or not deterministic.get("material_rate"):
+            llm_result = self._interpret_with_llm(raw_table) or {}
         if isinstance(llm_result, dict) and isinstance(llm_result.get("extracted_data"), dict):
             llm_result = llm_result["extracted_data"]
-        dimensions = self._extract_dimensions_from_raw_table(
-            raw_table.get("rows", [])
-        )
-        deterministic = self._interpret_from_headers(raw_table)
-        deterministic.update(dimensions)
         interpreted = dict(deterministic)
         if isinstance(llm_result, dict):
             interpreted.update(
@@ -2499,3 +2503,30 @@ class SupplierNegotiationService:
                     3
                 )
 
+    def _extract_cost_fields_from_rows(self, rows):
+        result = {}
+        for row in rows:
+            text = " ".join(
+                str(x).upper()
+                for x in row
+                if x not in [None, ""]
+            )
+            numeric_values = []
+            for cell in row:
+                try:
+                    numeric_values.append(float(cell))
+                except:
+                    pass
+            last_num = numeric_values[-1] if numeric_values else None
+            if "SURFACE PROTECTION" in text:
+                result["coating"] = "PLATING"
+                result["coating_cost"] = last_num
+            elif "OVERHEAD" in text:
+                result["overhead_cost"] = last_num
+            elif "I.C.C" in text:
+                result["icc_cost"] = last_num
+            elif "REJECTION(@" in text:
+                result["rejection_cost"] = last_num
+            elif "PROFIT(@" in text:
+                result["profit"] = last_num
+        return result
