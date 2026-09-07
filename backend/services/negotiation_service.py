@@ -679,8 +679,12 @@ class SupplierNegotiationService:
         # Find first non-empty row and treat it as header row
         header_idx = 0
         for i, row in enumerate(rows):
-            cleaned = [self._clean_cell(v) for v in row]
-            if any(str(x).strip() for x in cleaned):
+            populated = sum(
+                1
+                for cell in row
+                if str(self._clean_cell(cell)).strip()
+            )
+            if populated >= 3:
                 header_idx = i
                 break
         headers = [self._clean_cell(value) for value in rows[header_idx]]
@@ -893,13 +897,17 @@ class SupplierNegotiationService:
                     }
                 ],
                 "temperature": 0.1,
-                "response_format": {"type": "json_object"},
+                # "response_format": {"type": "json_object"},
             }
             logger.debug(
                 "Sending to Groq: %d rows (of %d total), %d columns",
                 len(rows_to_send),
                 len(raw_table.get("rows", [])),
                 len(raw_table.get("headers", []))
+            )
+            logger.warning(
+                "GROQ_PAYLOAD=%s",
+                json.dumps(payload, default=str)[:10000]
             )
             response = self._call_groq(payload, timeout=30)
             if response.status_code != 200:
