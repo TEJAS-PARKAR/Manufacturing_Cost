@@ -812,14 +812,18 @@ class SupplierNegotiationService:
             return {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
-            rows_to_send = raw_table.get("rows", [])[:30]
+            rows = raw_table.get("rows", [])
+            if len(rows) <= 60:
+                rows_to_send = rows
+            else:
+                rows_to_send = rows[:30] + rows[-30:]
             row_note = ""
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
 
             payload = {
                 "model": self.groq_model,
-                "max_completion_tokens": 1200,
+                "max_completion_tokens": 600,
                 "messages": [
                     {
                         "role": "system",
@@ -901,7 +905,7 @@ class SupplierNegotiationService:
                     }
                 ],
                 "temperature": 0.1,
-                # "response_format": {"type": "json_object"},
+                "response_format": {"type": "json_object"},
             }
             logger.debug(
                 "Sending to Groq: %d rows (of %d total), %d columns",
@@ -1857,7 +1861,7 @@ class SupplierNegotiationService:
                 }
             ],
             "temperature": 0.2,
-            # "response_format": {"type": "json_object"},
+            "response_format": {"type": "json_object"},
         }
         response = self._call_groq(payload, timeout=30)
         response.raise_for_status()
@@ -2526,22 +2530,43 @@ class SupplierNegotiationService:
                 for x in row
                 if x not in [None, ""]
             )
-            numeric_values = []
-            for cell in row:
+            cost = None
+            if len(row) > 9:
                 try:
-                    numeric_values.append(float(cell))
+                    cost = float(row[9])
                 except:
                     pass
-            last_num = numeric_values[-1] if numeric_values else None
-            if "SURFACE PROTECTION" in text:
+            if "R. M. COST OF PARTS" in text:
+                result["raw_material_cost"] = cost
+            elif "CONVERSION COST" in text:
+                pass
+            elif "SURFACE PROTECTION" in text:
                 result["coating"] = "PLATING"
-                result["coating_cost"] = last_num
+                result["coating_cost"] = cost
             elif "OVERHEAD" in text:
-                result["overhead_cost"] = last_num
+                result["overhead_cost"] = cost
             elif "I.C.C" in text:
-                result["icc_cost"] = last_num
+                result["icc_cost"] = cost
             elif "REJECTION(@" in text:
-                result["rejection_cost"] = last_num
+                result["rejection_cost"] = cost
             elif "PROFIT(@" in text:
-                result["profit"] = last_num
+                result["profit"] = cost
+            elif text.strip().startswith("TOTAL"):
+                result["total_cost"] = cost
+        # Conversion cost section
+        for i, row in enumerate(rows):
+            text = " ".join(
+                str(x).upper()
+                for x in row
+                if x not in [None, ""]
+            )
+            if "CONVERSION COST" in text:
+                for nxt in rows[i + 1:i + 5]:
+                    try:
+                        val = float(nxt[9])
+                        if val > 0:
+                            result["conversion_cost"] = val
+                            break
+                    except:
+                        continue
         return result
