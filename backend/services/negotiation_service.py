@@ -901,7 +901,7 @@ class SupplierNegotiationService:
                     }
                 ],
                 "temperature": 0.1,
-                "response_format": {"type": "json_object"},
+                # "response_format": {"type": "json_object"},
             }
             logger.debug(
                 "Sending to Groq: %d rows (of %d total), %d columns",
@@ -1846,7 +1846,7 @@ class SupplierNegotiationService:
                 }
             ],
             "temperature": 0.2,
-            "response_format": {"type": "json_object"},
+            # "response_format": {"type": "json_object"},
         }
         response = self._call_groq(payload, timeout=30)
         response.raise_for_status()
