@@ -808,7 +808,7 @@ class SupplierNegotiationService:
             return {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
-            rows_to_send = raw_table.get("rows", [])
+            rows_to_send = raw_table.get("rows", [])[:50]
             row_note = ""
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
@@ -897,7 +897,7 @@ class SupplierNegotiationService:
                     }
                 ],
                 "temperature": 0.1,
-                # "response_format": {"type": "json_object"},
+                "response_format": {"type": "json_object"},
             }
             logger.debug(
                 "Sending to Groq: %d rows (of %d total), %d columns",
@@ -937,6 +937,7 @@ class SupplierNegotiationService:
 
             parsed = None
             try:
+                logger.warning("RAW_GROQ_RESPONSE=%s", content)
                 parsed = json.loads(content)
                 logger.debug("PARSED DATA: %s", parsed)
             except json.JSONDecodeError as e:
