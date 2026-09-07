@@ -804,7 +804,7 @@ class SupplierNegotiationService:
             return {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
-            rows_to_send = raw_table.get("rows", [])[:20]
+            rows_to_send = raw_table.get("rows", [])
             row_note = ""
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
@@ -817,65 +817,67 @@ class SupplierNegotiationService:
                         "role": "system",
                         "content": """You are an expert in Tata Motors supplier costing sheets.
 
-Analyze the costing sheet and return a FLAT JSON object with SCALAR values only.
-Do NOT return arrays or nested objects for the top-level fields (except process_information).
+                        Return a JSON object.
 
-RETURN THESE EXACT KEYS (use null if not found):
+                        Only process_information may be an array of objects.
+                        All other fields must be scalar values.
 
-  "quantity"            : integer — production batch quantity (e.g. 132)
-  "material"            : string — single material name/grade (e.g. "10 MM E 46", "CRCA")
-  "material_grade"      : string — grade only (e.g. "E 46")
-  "material_rate"       : number — Rs/kg rate from the raw material section (e.g. 60.3)
+                        RETURN THESE EXACT KEYS (use null if not found):
 
-  SHEET DIMENSIONS (from "Full Sheet Size" row):
-  "sheet_length"        : number — Full Sheet length in mm
-  "sheet_width"         : number — Full Sheet width in mm
-  "sheet_thickness"     : number — Full Sheet thickness in mm
+                        "quantity"            : integer — production batch quantity (e.g. 132)
+                        "material"            : string — single material name/grade (e.g. "10 MM E 46", "CRCA")
+                        "material_grade"      : string — grade only (e.g. "E 46")
+                        "material_rate"       : number — Rs/kg rate from the raw material section (e.g. 60.3)
 
-  PART DIMENSIONS (from "Shear Size" or "Blank Size" row):
-  "part_length"         : number — Shear/Blank length in mm
-  "part_width"          : number — Shear/Blank width in mm
-  "part_thickness"      : number — Shear/Blank thickness in mm
+                        SHEET DIMENSIONS (from "Full Sheet Size" row):
+                        "sheet_length"        : number — Full Sheet length in mm
+                        "sheet_width"         : number — Full Sheet width in mm
+                        "sheet_thickness"     : number — Full Sheet thickness in mm
 
-  BACKWARD COMPAT (populate from sheet/part fields):
-  "thickness"           : number — same as sheet_thickness
-  "width"               : number — same as part_width
-  "length"              : number — same as part_length
+                        PART DIMENSIONS (from "Shear Size" or "Blank Size" row):
+                        "part_length"         : number — Shear/Blank length in mm
+                        "part_width"          : number — Shear/Blank width in mm
+                        "part_thickness"      : number — Shear/Blank thickness in mm
 
-  "gross_weight" : number — weight per component
-  (gross_weight = blank_weight / number_of_parts)
+                        BACKWARD COMPAT (populate from sheet/part fields):
+                        "thickness"           : number — same as sheet_thickness
+                        "width"               : number — same as part_width
+                        "length"              : number — same as part_length
 
-  IMPORTANT:
-  Do NOT map full sheet weight to gross_weight.
-  Full sheet weight must be returned as blank_weight.
-  "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
-  "scrap_weight"        : number — scrap weight per piece in kg
-  "blank_weight"        : number — full sheet weight in kg
-  "raw_material_cost"   : number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")
-  "conversion_cost"     : number — total conversion cost per piece (look for "TOTAL CON. COST")
-  "coating_cost"        : number — sum of all coating/surface protection costs per piece
-  "overhead_cost"       : number — overhead per piece
-  "icc_cost"            : number — ICC on raw material per piece
-  "rejection_cost"      : number — rejection allowance per piece
-  "profit"              : number — profit per piece
-  "packing_cost"        : number — packing cost per piece
-  "transport_cost"      : number — transport cost per piece
-  "total_cost"          : number — final TOTAL cost per piece (the last/bottom "TOTAL" in the sheet)
-  "coating"             : string — coating type (e.g. "POWDER COATING", "ZINC PLATING")
-  "process_information" : array of {"process": string, "cost": number} — individual process line items
+                        "gross_weight" : number — weight per component
+                        (gross_weight = blank_weight / number_of_parts)
 
-CRITICAL RULES:
-- "material" must be a SINGLE STRING, not a list or array.
-- Every numeric field must be a single number, never an expression.
-- Extract "Full Sheet Size" dimensions into sheet_length, sheet_width, sheet_thickness.
-- Extract "Shear Size" or "Blank Size" dimensions into part_length, part_width, part_thickness.
-- If only one set of dimensions exists, use it for both sheet_* and part_* fields.
-- Also copy sheet_thickness to thickness, part_width to width, part_length to length.
-- Sum all coating-related line items (powder coating + shot blasting + primer) into coating_cost.
-- Use the "NET MATL. COST PER PIECE" row value as raw_material_cost.
-- Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
-- Use null if a field is genuinely not present in the sheet.
-"""
+                        IMPORTANT:
+                        Do NOT map full sheet weight to gross_weight.
+                        Full sheet weight must be returned as blank_weight.
+                        "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
+                        "scrap_weight"        : number — scrap weight per piece in kg
+                        "blank_weight"        : number — full sheet weight in kg
+                        "raw_material_cost"   : number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")
+                        "conversion_cost"     : number — total conversion cost per piece (look for "TOTAL CON. COST")
+                        "coating_cost"        : number — sum of all coating/surface protection costs per piece
+                        "overhead_cost"       : number — overhead per piece
+                        "icc_cost"            : number — ICC on raw material per piece
+                        "rejection_cost"      : number — rejection allowance per piece
+                        "profit"              : number — profit per piece
+                        "packing_cost"        : number — packing cost per piece
+                        "transport_cost"      : number — transport cost per piece
+                        "total_cost"          : number — final TOTAL cost per piece (the last/bottom "TOTAL" in the sheet)
+                        "coating"             : string — coating type (e.g. "POWDER COATING", "ZINC PLATING")
+                        "process_information" : array of {"process": string, "cost": number} — individual process line items
+
+                        CRITICAL RULES:
+                        - "material" must be a SINGLE STRING, not a list or array.
+                        - Every numeric field must be a single number, never an expression.
+                        - Extract "Full Sheet Size" dimensions into sheet_length, sheet_width, sheet_thickness.
+                        - Extract "Shear Size" or "Blank Size" dimensions into part_length, part_width, part_thickness.
+                        - If only one set of dimensions exists, use it for both sheet_* and part_* fields.
+                        - Also copy sheet_thickness to thickness, part_width to width, part_length to length.
+                        - Sum all coating-related line items (powder coating + shot blasting + primer) into coating_cost.
+                        - Use the "NET MATL. COST PER PIECE" row value as raw_material_cost.
+                        - Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
+                        - Use null if a field is genuinely not present in the sheet.
+                        """
                     },
                     {
                         "role": "user",
