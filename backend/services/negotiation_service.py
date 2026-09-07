@@ -926,8 +926,19 @@ class SupplierNegotiationService:
                 "Groq API responded with status %d",
                 response.status_code
             )
-            content = response.json()["choices"][0]["message"]["content"]
-            content = content.strip()
+            response_json = response.json()
+            message = (
+                response_json.get("choices", [{}])[0]
+                .get("message", {})
+            )
+            content = message.get("content")
+            if not content:
+                logger.error(
+                    "Groq returned empty content. Full response=%s",
+                    json.dumps(response_json, indent=2)
+                )
+                return {}
+            content = str(content).strip()
             # Fix things like:
             # "coating_cost": 3.25 + 0.89
             content = re.sub(
@@ -1850,6 +1861,10 @@ class SupplierNegotiationService:
         }
         response = self._call_groq(payload, timeout=30)
         response.raise_for_status()
+        logger.warning(
+            "FULL_GROQ_RESPONSE=%s",
+            json.dumps(response.json(), indent=2)
+        )
         content = response.json()["choices"][0]["message"]["content"].strip()
         if content.startswith("```"):
             content = content.replace("```json", "")
