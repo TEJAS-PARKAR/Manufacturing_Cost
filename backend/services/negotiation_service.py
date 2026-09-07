@@ -808,7 +808,7 @@ class SupplierNegotiationService:
             return {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
-            rows_to_send = raw_table.get("rows", [])[:50]
+            rows_to_send = raw_table.get("rows", [])[:30]
             row_note = ""
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
@@ -906,8 +906,9 @@ class SupplierNegotiationService:
                 len(raw_table.get("headers", []))
             )
             logger.warning(
-                "GROQ_PAYLOAD=%s",
-                json.dumps(payload, default=str)[:10000]
+                "GROQ rows=%s cols=%s",
+                len(rows_to_send),
+                len(raw_table.get("headers", []))
             )
             response = self._call_groq(payload, timeout=30)
             if response.status_code != 200:
