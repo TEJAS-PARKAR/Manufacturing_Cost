@@ -26,6 +26,19 @@ def test_session_memory_resumes_supplier_context_across_sessions() -> None:
     assert resumed["summary"]
 
 
+def test_quantity_is_optional_in_supplier_negotiation() -> None:
+    service = SupplierNegotiationService()
+
+    result = service.record_supplier_message(
+        employee_id="EMP1001",
+        part_number="123456789012",
+        message="Material is CRCA, material rate is 65, powder coating, laser cutting, dimensions are 250 x 200 x 2.",
+    )
+
+    assert "quantity" not in result["missing_fields"]
+    assert "quantity" not in result["extracted_data"]
+
+
 def test_excel_upload_extracts_costing_fields_into_session() -> None:
     service = SupplierNegotiationService()
 

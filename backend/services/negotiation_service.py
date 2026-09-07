@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 class SupplierNegotiationService:
     REQUIRED_FIELDS = [
-        "quantity",
         "dimensions",
         "material",
         "material_rate",
@@ -577,10 +576,7 @@ class SupplierNegotiationService:
         missing = []
         # Helper lambda to check if a value is genuinely empty/missing
         is_empty = lambda v: v is None or v == ""
-        # 1. Check Quantity
-        if is_empty(extracted_data.get("quantity")):
-            missing.append("quantity")
-        # 2. Check Dimensions
+        # 1. Check Dimensions
         has_individual_dims = all(
             not is_empty(extracted_data.get(dim)) 
             for dim in ["part_length", "part_width", "part_thickness"]
@@ -588,16 +584,16 @@ class SupplierNegotiationService:
         has_fallback_dims = not is_empty(extracted_data.get("dimensions"))
         if not (has_individual_dims or has_fallback_dims):
             missing.append("dimensions")
-        # 3. Check Material
+        # 2. Check Material
         if is_empty(extracted_data.get("material")) and is_empty(extracted_data.get("material_grade")):
             missing.append("material")
-        # 4. Check Material Rate
+        # 3. Check Material Rate
         if is_empty(extracted_data.get("material_rate")):
             missing.append("material_rate")
-        # 5. Check Coating
+        # 4. Check Coating
         if is_empty(extracted_data.get("coating")) and is_empty(extracted_data.get("coating_cost")):
             missing.append("coating")
-        # 6. Check Process Information (Assuming it's a list/dict, check for falsy empty collections)
+        # 5. Check Process Information (Assuming it's a list/dict, check for falsy empty collections)
         if not extracted_data.get("process_information"): 
             missing.append("process_information")
         return missing
