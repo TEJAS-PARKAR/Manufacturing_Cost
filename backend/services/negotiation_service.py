@@ -718,18 +718,38 @@ class SupplierNegotiationService:
                     nums.append(float(item))
                 except (ValueError, TypeError):
                     pass
-            # Full Sheet Size
-            if "FULL SHEET" in text and len(nums) >= 3:
+            # Full Sheet Size — match common variations
+            is_full_sheet = any(
+                pattern in text
+                for pattern in [
+                    "FULL SHEET",
+                    "SHEET SIZE",
+                    "FULL SHT",
+                    "MOTHER SHEET",
+                    "MOTHER COIL",
+                ]
+            )
+            if is_full_sheet and len(nums) >= 3:
                 result.update({
                     "sheet_thickness": nums[0],
                     "sheet_width": nums[1],
                     "sheet_length": nums[2],
                 })
-            # Blank Size / Shear Size
-            if (
-                "BLANK SIZE" in text
-                or "SHEAR SIZE" in text
-            ) and len(nums) >= 3:
+            # Blank Size / Shear Size — match common variations
+            is_blank_or_shear = any(
+                pattern in text
+                for pattern in [
+                    "BLANK SIZE",
+                    "SHEAR SIZE",
+                    "SHEARING SIZE",
+                    "BLANK",
+                    "SHEAR",
+                    "DEVELOPED SIZE",
+                    "CUT SIZE",
+                ]
+            )
+            # Avoid matching rows that are about the full sheet
+            if is_blank_or_shear and not is_full_sheet and len(nums) >= 3:
                 result.update({
                     "part_thickness": nums[0],
                     "part_width": nums[1],
@@ -753,13 +773,14 @@ class SupplierNegotiationService:
         deterministic = {}
         deterministic.update(dimensions)
         deterministic.update(cost_fields)
-        llm_result = {}
-        # Only call Groq if important fields are still missing
-        if not deterministic.get("material") or not deterministic.get("material_rate"):
-            llm_result = self._interpret_with_llm(raw_table) or {}
+        # Always call the LLM to get comprehensive extraction (material,
+        # weights, process info, cost fields the regex parser may miss).
+        llm_result = self._interpret_with_llm(raw_table) or {}
         if isinstance(llm_result, dict) and isinstance(llm_result.get("extracted_data"), dict):
             llm_result = llm_result["extracted_data"]
-        interpreted = dict(deterministic)
+        # Merge strategy: start with LLM result, then overlay deterministic
+        # values so that precise regex-parsed numbers always win.
+        interpreted: dict[str, Any] = {}
         if isinstance(llm_result, dict):
             interpreted.update(
                 {
@@ -768,14 +789,22 @@ class SupplierNegotiationService:
                     if value is not None and value != ""
                 }
             )
+        # Deterministic values overwrite LLM values (higher trust)
+        interpreted.update(
+            {
+                key: value
+                for key, value in deterministic.items()
+                if value is not None and value != ""
+            }
+        )
         logger.warning("RAW_HEADERS=%s", raw_table.get("headers"))
         logger.warning("DETERMINISTIC=%s", deterministic)
         logger.warning("LLM_RESULT=%s", llm_result)
         logger.warning("INTERPRETED=%s", interpreted)
         normalized = self._normalize_interpreted_values(interpreted)
-        if normalized:
-            return normalized
-        return {}
+        # Return whatever was normalized — even if only cost fields were
+        # found and no dimensions. An empty dict drops all extracted data.
+        return normalized if normalized else interpreted
 
     def _interpret_from_headers(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         headers = [self._normalize_header(header) for header in raw_table.get("headers", [])]
@@ -823,7 +852,7 @@ class SupplierNegotiationService:
 
             payload = {
                 "model": self.groq_model,
-                "max_completion_tokens": 600,
+                "max_completion_tokens": 2048,
                 "messages": [
                     {
                         "role": "system",
@@ -2522,6 +2551,23 @@ class SupplierNegotiationService:
                     3
                 )
 
+    @staticmethod
+    def _find_row_cost_value(row) -> float | None:
+        """Find the cost value in a row by scanning right-to-left for the
+        last numeric cell.  This avoids hardcoding a column index."""
+        for cell in reversed(row):
+            if cell in (None, ""):
+                continue
+            try:
+                val = float(cell)
+                # Skip values that look like serial numbers / years / indices
+                # Cost values in Tata costing sheets are typically < 100000
+                if val != 0:
+                    return val
+            except (ValueError, TypeError):
+                continue
+        return None
+
     def _extract_cost_fields_from_rows(self, rows):
         result = {}
         for row in rows:
@@ -2530,43 +2576,70 @@ class SupplierNegotiationService:
                 for x in row
                 if x not in [None, ""]
             )
-            cost = None
-            if len(row) > 9:
-                try:
-                    cost = float(row[9])
-                except:
-                    pass
-            if "R. M. COST OF PARTS" in text:
-                result["raw_material_cost"] = cost
-            elif "CONVERSION COST" in text:
-                pass
-            elif "SURFACE PROTECTION" in text:
-                result["coating"] = "PLATING"
-                result["coating_cost"] = cost
+            cost = self._find_row_cost_value(row)
+            # Raw material cost
+            if "R. M. COST" in text or "RM COST" in text or "RAW MATERIAL COST" in text or "NET MATL" in text:
+                if cost is not None:
+                    result["raw_material_cost"] = cost
+            # Conversion cost — extract directly (was previously skipped)
+            elif "CONVERSION COST" in text or "TOTAL CON" in text:
+                if cost is not None:
+                    result["conversion_cost"] = cost
+            # Surface protection / coating
+            elif "SURFACE PROTECTION" in text or "COATING" in text or "PLATING" in text:
+                if cost is not None:
+                    result["coating_cost"] = cost
+                # Detect coating type
+                if "POWDER" in text:
+                    result["coating"] = "POWDER COATING"
+                elif "ZINC" in text:
+                    result["coating"] = "ZINC PLATING"
+                elif "PAINT" in text:
+                    result["coating"] = "PAINTING"
+                else:
+                    result["coating"] = "PLATING"
+            # Overhead
             elif "OVERHEAD" in text:
-                result["overhead_cost"] = cost
-            elif "I.C.C" in text:
-                result["icc_cost"] = cost
-            elif "REJECTION(@" in text:
-                result["rejection_cost"] = cost
-            elif "PROFIT(@" in text:
-                result["profit"] = cost
-            elif text.strip().startswith("TOTAL"):
-                result["total_cost"] = cost
-        # Conversion cost section
-        for i, row in enumerate(rows):
-            text = " ".join(
-                str(x).upper()
-                for x in row
-                if x not in [None, ""]
-            )
-            if "CONVERSION COST" in text:
-                for nxt in rows[i + 1:i + 5]:
-                    try:
-                        val = float(nxt[9])
-                        if val > 0:
+                if cost is not None:
+                    result["overhead_cost"] = cost
+            # ICC
+            elif "I.C.C" in text or "ICC" in text:
+                if cost is not None:
+                    result["icc_cost"] = cost
+            # Rejection (match "REJECTION(@" and "REJECTION" variants)
+            elif "REJECTION" in text:
+                if cost is not None:
+                    result["rejection_cost"] = cost
+            # Profit (match "PROFIT(@" and "PROFIT" variants)
+            elif "PROFIT" in text:
+                if cost is not None:
+                    result["profit"] = cost
+            # Packing cost
+            elif "PACKING" in text:
+                if cost is not None:
+                    result["packing_cost"] = cost
+            # Transport cost
+            elif "TRANSPORT" in text:
+                if cost is not None:
+                    result["transport_cost"] = cost
+            # Total — always overwrite so the LAST "TOTAL" row wins
+            elif text.strip().startswith("TOTAL") or text.strip() == "TOTAL":
+                if cost is not None:
+                    result["total_cost"] = cost
+        # Fallback: if conversion_cost wasn't found, scan for it in rows
+        # following a "CONVERSION COST" header row
+        if "conversion_cost" not in result:
+            for i, row in enumerate(rows):
+                text = " ".join(
+                    str(x).upper()
+                    for x in row
+                    if x not in [None, ""]
+                )
+                if "CONVERSION COST" in text or "TOTAL CON" in text:
+                    for nxt in rows[i + 1:i + 5]:
+                        val = self._find_row_cost_value(nxt)
+                        if val is not None and val > 0:
                             result["conversion_cost"] = val
                             break
-                    except:
-                        continue
+                    break
         return result
