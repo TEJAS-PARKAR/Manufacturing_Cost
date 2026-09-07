@@ -252,6 +252,10 @@ class SupplierNegotiationService:
             ]:
                 session["extracted_data"].pop(field, None)
         logger.debug("NEW INTERPRETATION = %s", interpretation)
+        if interpretation.get("part_number"):
+            session["extracted_data"]["part_number"] = interpretation["part_number"]
+            if not session.get("part_number") or session.get("part_number") == "UNKNOWN":
+                session["part_number"] = interpretation["part_number"]
         session["extracted_data"].update(interpretation)
         self._recalculate_dimension_weights(
             session["extracted_data"]
@@ -698,11 +702,302 @@ class SupplierNegotiationService:
             "sheet_name": worksheet.title,
             "headers": headers,
             "rows": data_rows,
+            "all_rows": rows,
             "row_count": len(data_rows),
             "column_count": len(headers),
             "dataframe_preview": dataframe.to_dict(orient="records"),
         }
 
+
+    def _extract_deterministic_data(self, all_rows: list[list[Any]]) -> dict[str, Any]:
+        """Comprehensive deterministic extraction for Tata Motors costing sheets."""
+        extracted: dict[str, Any] = {}
+        if not all_rows:
+            return extracted
+
+        # 1. Metadata scan (Part Number, RM Specs, etc.)
+        for row in all_rows:
+            row_str = " ".join(str(c).strip() for c in row if c is not None)
+            if not row_str:
+                continue
+            # Part number
+            pn_match = re.search(
+                r"(?:Assy\s*Part\s*Number|Part\s*No|Part\s*Number)\s*[:=\s]+([A-Za-z0-9_-]+)",
+                row_str,
+                re.I,
+            )
+            if pn_match and "part_number" not in extracted:
+                extracted["part_number"] = pn_match.group(1).strip()
+
+            # Material Specs
+            spec_match = re.search(
+                r"(?:Raw\s*Material\s*Specs|RM\s*Specs|Material\s*Spec[s]?)[.:-]*\s*(.+)",
+                row_str,
+                re.I,
+            )
+            if spec_match and "material" not in extracted:
+                spec_val = spec_match.group(1).strip()
+                extracted["material"] = spec_val
+                grade_match = re.search(
+                    r"(?:DD\s*\d+|CRCA|HR\d*|EN\d+|IS\s*\d+|EDD|IF|DP\d+|AL\d+|SS\d+)",
+                    spec_val,
+                    re.I,
+                )
+                if grade_match:
+                    extracted["material_grade"] = grade_match.group(0).strip()
+
+        # 2. Cost summary scan
+        for i, row in enumerate(all_rows):
+            row_str = " ".join(str(c).strip().upper() for c in row if c is not None)
+            if not row_str:
+                continue
+            cost = self._find_row_cost_value(row)
+
+            # Raw Material Cost
+            if any(term in row_str for term in ["R. M. COST", "RM COST", "RAW MATERIAL COST"]):
+                val = cost
+                if val is None and i + 1 < len(all_rows):
+                    val = self._find_row_cost_value(all_rows[i + 1])
+                if val is not None:
+                    extracted["raw_material_cost"] = val
+            elif "NET MATL" in row_str or "NET MATERIAL" in row_str:
+                if cost is not None:
+                    extracted["raw_material_cost"] = cost
+
+            # Conversion Cost
+            elif "CONVERSION COST" in row_str and not any(h in row_str for h in ["PR ST", "RS/STROKE", "TONNAGE"]):
+                val = cost
+                if val is None and i + 1 < len(all_rows):
+                    val = self._find_row_cost_value(all_rows[i + 1])
+                if val is not None:
+                    extracted["conversion_cost"] = val
+
+            # Coating / Surface Protection
+            elif any(term in row_str for term in ["SURFACE PROTECTION", "PLATING", "COATING"]):
+                if cost is not None:
+                    extracted["coating_cost"] = cost
+                if "POWDER" in row_str:
+                    extracted["coating"] = "POWDER COATING"
+                elif "ZINC" in row_str:
+                    extracted["coating"] = "ZINC PLATING"
+                elif "PAINT" in row_str:
+                    extracted["coating"] = "PAINTING"
+                elif "PLATING" in row_str:
+                    extracted["coating"] = "PLATING"
+
+            # Overhead
+            elif "OVERHEAD" in row_str:
+                if cost is not None:
+                    extracted["overhead_cost"] = cost
+
+            # ICC
+            elif "I.C.C" in row_str or "ICC" in row_str:
+                if cost is not None:
+                    extracted["icc_cost"] = cost
+
+            # Rejection & Recovery
+            elif "REJECTION RECOVERY" in row_str or "REJECTION REC" in row_str:
+                if cost is not None:
+                    extracted["rejection_recovery"] = cost
+            elif "REJECTION" in row_str:
+                if cost is not None:
+                    extracted["rejection_cost"] = cost
+
+            # Profit
+            elif "PROFIT" in row_str:
+                if cost is not None:
+                    extracted["profit"] = cost
+
+            # Transport
+            elif "TRANSPORT" in row_str:
+                if cost is not None:
+                    extracted["transport_cost"] = cost
+
+            # Packing
+            elif "PACKING" in row_str:
+                if cost is not None:
+                    extracted["packing_cost"] = cost
+
+            # Total Cost
+            elif row_str.strip().startswith("TOTAL") or row_str.strip() == "TOTAL":
+                if cost is not None:
+                    extracted["total_cost"] = cost
+
+        # 3. Raw Material Table scan
+        for i, row in enumerate(all_rows):
+            row_str = " ".join(str(c).strip().upper() for c in row if c is not None)
+            if any(h in row_str for h in ["TH.", "WD.", "LG"]) or any(h in row_str for h in ["THICK", "WIDTH", "LENGTH"]):
+                th_col, wd_col, lg_col, wt_col, wt_pc_col, pcs_col, rate_col, val_col, yield_col = [None] * 9
+                for col_idx, cell in enumerate(row):
+                    if not cell:
+                        continue
+                    c_clean = str(cell).strip().upper()
+                    if c_clean in ["TH.", "TH", "THK", "THICK", "THICKNESS"]:
+                        th_col = col_idx
+                    elif c_clean in ["WD.", "WD", "WIDTH", "WID"]:
+                        wd_col = col_idx
+                    elif c_clean in ["LG", "LG.", "LENGTH", "LEN"]:
+                        lg_col = col_idx
+                    elif c_clean in ["WT.", "WT", "WEIGHT"]:
+                        wt_col = col_idx
+                    elif "WT" in c_clean and "PC" in c_clean:
+                        wt_pc_col = col_idx
+                    elif "NO" in c_clean and "PC" in c_clean:
+                        pcs_col = col_idx
+                    elif c_clean in ["RATE", "RATE/KG", "RS/KG"]:
+                        rate_col = col_idx
+                    elif c_clean in ["VALUE", "VAL", "COST", "AMT"]:
+                        val_col = col_idx
+                    elif "YIELD" in c_clean:
+                        yield_col = col_idx
+
+                for sub_row in all_rows[i + 1:i + 15]:
+                    sub_str = " ".join(str(c).strip().upper() for c in sub_row if c is not None)
+                    if not sub_str:
+                        continue
+                    if any(term in sub_str for term in ["CONVERSION COST", "PROCESS INFO"]):
+                        break
+
+                    # Full Sheet
+                    if any(p in sub_str for p in ["FULL SHEET", "SHEET SIZE", "MOTHER COIL", "MOTHER SHEET"]):
+                        if th_col is not None and sub_row[th_col] is not None:
+                            try:
+                                extracted["sheet_thickness"] = float(sub_row[th_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if wd_col is not None and sub_row[wd_col] is not None:
+                            try:
+                                extracted["sheet_width"] = float(sub_row[wd_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if lg_col is not None and sub_row[lg_col] is not None:
+                            try:
+                                extracted["sheet_length"] = float(sub_row[lg_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if wt_col is not None and sub_row[wt_col] is not None:
+                            try:
+                                extracted["blank_weight"] = float(sub_row[wt_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if wt_pc_col is not None and sub_row[wt_pc_col] is not None:
+                            try:
+                                extracted["gross_weight"] = float(sub_row[wt_pc_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if pcs_col is not None and sub_row[pcs_col] is not None:
+                            try:
+                                extracted["quantity"] = int(float(sub_row[pcs_col]))
+                            except (ValueError, TypeError):
+                                pass
+                        if rate_col is not None and sub_row[rate_col] is not None:
+                            try:
+                                extracted["material_rate"] = float(sub_row[rate_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if yield_col is not None and sub_row[yield_col] is not None:
+                            try:
+                                extracted["yield_percentage"] = round(float(sub_row[yield_col]) * 100, 2)
+                            except (ValueError, TypeError):
+                                pass
+
+                    # Shear Size / Blank Size (explicitly avoid BLANKING or SHEARING operations)
+                    elif any(p in sub_str for p in ["SHEAR SIZE", "BLANK SIZE", "DEVELOPED SIZE", "CUT SIZE", "PART SIZE"]):
+                        if th_col is not None and sub_row[th_col] is not None:
+                            try:
+                                t = float(sub_row[th_col])
+                                extracted["part_thickness"] = t
+                                extracted["thickness"] = t
+                            except (ValueError, TypeError):
+                                pass
+                        if wd_col is not None and sub_row[wd_col] is not None:
+                            try:
+                                w = float(sub_row[wd_col])
+                                extracted["part_width"] = w
+                                extracted["width"] = w
+                            except (ValueError, TypeError):
+                                pass
+                        if lg_col is not None and sub_row[lg_col] is not None:
+                            try:
+                                l = float(sub_row[lg_col])
+                                extracted["part_length"] = l
+                                extracted["length"] = l
+                            except (ValueError, TypeError):
+                                pass
+                        if wt_col is not None and sub_row[wt_col] is not None:
+                            try:
+                                extracted["part_weight"] = float(sub_row[wt_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if "part_thickness" in extracted and "part_width" in extracted and "part_length" in extracted:
+                            extracted["dimensions"] = [
+                                extracted["part_thickness"],
+                                extracted["part_width"],
+                                extracted["part_length"],
+                            ]
+
+                    # Finished Weight
+                    elif any(p in sub_str for p in ["FINISHED WT", "FIN WT", "FIN. WT"]):
+                        for val in sub_row:
+                            try:
+                                f = float(val)
+                                if 0 < f < 1000:
+                                    extracted["finished_weight"] = f
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+
+                    # Scrap
+                    elif "SCRAP" in sub_str:
+                        nums = []
+                        for val in sub_row:
+                            try:
+                                nums.append(float(val))
+                            except (ValueError, TypeError):
+                                pass
+                        if nums:
+                            extracted["scrap_weight"] = nums[0]
+                            if len(nums) >= 2:
+                                extracted["scrap_rate"] = nums[1]
+                            if len(nums) >= 3:
+                                extracted["scrap_recovery"] = nums[2]
+
+        # 4. Conversion process operations scan
+        processes = []
+        in_conversion = False
+        for row in all_rows:
+            row_str = " ".join(str(c).strip().upper() for c in row if c is not None)
+            if "CONVERSION COST" in row_str and any(h in row_str for h in ["PR ST", "RS/STROKE", "VALUE", "NO. OF STROKE"]):
+                in_conversion = True
+                continue
+            if in_conversion:
+                if not row_str or any(end_term in row_str for end_term in ["TOTAL", "BOUGHT OUT", "RAW MATERIAL"]):
+                    in_conversion = False
+                    continue
+                op_name = None
+                for c in row[:3]:
+                    if c and any(op in str(c).upper() for op in [
+                        "SHEARING", "BLANKING", "PIERCING", "BENDING",
+                        "HANDELING", "HANDLING", "INSPECTION", "DEBURRING",
+                        "WELDING", "FORMING", "DRILLING", "TAPPING", "STAMPING",
+                    ]):
+                        op_name = str(c).strip()
+                        break
+                if op_name:
+                    cost_val = None
+                    for c in reversed(row):
+                        try:
+                            cost_val = float(c)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+                    processes.append({"process": op_name, "cost": cost_val if cost_val is not None else 0.0})
+        if processes:
+            extracted["process_information"] = processes
+            if "conversion_cost" not in extracted or extracted["conversion_cost"] == 0:
+                extracted["conversion_cost"] = round(sum(p["cost"] for p in processes), 2)
+
+        return extracted
 
     def _extract_dimensions_from_raw_table(self, rows):
         result = {}
@@ -735,19 +1030,32 @@ class SupplierNegotiationService:
                     "sheet_width": nums[1],
                     "sheet_length": nums[2],
                 })
-            # Blank Size / Shear Size — match common variations
-            is_blank_or_shear = any(
+            # Blank Size / Shear Size — match explicit size patterns only.
+            # CRITICAL: Do NOT match operation rows like "BLANKING", "SHEARING"
+            is_operation_row = any(
+                op in text
+                for op in [
+                    "BLANKING", "SHEARING", "PIERCING", "BENDING",
+                    "HANDELING", "HANDLING", "INSPECTION", "DEBURRING",
+                    "PR ST", "TONNAGE", "RS/STROKE", "NO. OF STROKE",
+                ]
+            )
+            is_blank_or_shear = (not is_operation_row) and any(
                 pattern in text
                 for pattern in [
                     "BLANK SIZE",
                     "SHEAR SIZE",
                     "SHEARING SIZE",
-                    "BLANK",
-                    "SHEAR",
                     "DEVELOPED SIZE",
                     "CUT SIZE",
+                    "PART SIZE",
+                    "COMPONENT SIZE",
                 ]
             )
+            if not is_blank_or_shear and not is_operation_row and not is_full_sheet:
+                if re.search(r"\b(?:BLANK|SHEAR)\s*SIZE\b", text, re.I):
+                    is_blank_or_shear = True
+
             # Avoid matching rows that are about the full sheet
             if is_blank_or_shear and not is_full_sheet and len(nums) >= 3:
                 result.update({
@@ -765,22 +1073,47 @@ class SupplierNegotiationService:
                 })
         return result
 
-
     def _interpret_excel_table(self, raw_table: dict[str, Any]) -> dict[str, Any]:
         rows = raw_table.get("rows", [])
-        dimensions = self._extract_dimensions_from_raw_table(rows)
-        cost_fields = self._extract_cost_fields_from_rows(rows)
-        deterministic = {}
+        all_rows = raw_table.get("all_rows") or rows
+
+        # 1. Header-based interpretation for flat columnar sheets
+        from_headers = self._interpret_from_headers(raw_table) or {}
+
+        # 2. Extract multi-section structured data (Tata Motors costing sheets)
+        deterministic = self._extract_deterministic_data(all_rows)
+
+        # Overlay dedicated dimensions
+        dimensions = self._extract_dimensions_from_raw_table(all_rows)
         deterministic.update(dimensions)
-        deterministic.update(cost_fields)
-        # Always call the LLM to get comprehensive extraction (material,
-        # weights, process info, cost fields the regex parser may miss).
+
+        # Only run row-cost-fields scan if not a flat columnar table
+        headers_lower = [str(h).lower() for h in raw_table.get("headers", []) if h]
+        is_flat_columnar = any(
+            k in h for h in headers_lower
+            for k in ["qty", "quantity", "material", "surface", "process", "rate"]
+        )
+        if not is_flat_columnar:
+            cost_fields = self._extract_cost_fields_from_rows(all_rows)
+            deterministic.update(cost_fields)
+
+        # 3. Always call LLM to get additional extraction
         llm_result = self._interpret_with_llm(raw_table) or {}
         if isinstance(llm_result, dict) and isinstance(llm_result.get("extracted_data"), dict):
             llm_result = llm_result["extracted_data"]
-        # Merge strategy: start with LLM result, then overlay deterministic
-        # values so that precise regex-parsed numbers always win.
+
+        # 4. Merge strategy:
+        # Start with from_headers
         interpreted: dict[str, Any] = {}
+        if isinstance(from_headers, dict):
+            interpreted.update(
+                {
+                    key: value
+                    for key, value in from_headers.items()
+                    if value is not None and value != ""
+                }
+            )
+        # Layer LLM result
         if isinstance(llm_result, dict):
             interpreted.update(
                 {
@@ -789,21 +1122,22 @@ class SupplierNegotiationService:
                     if value is not None and value != ""
                 }
             )
-        # Deterministic values overwrite LLM values (higher trust)
-        interpreted.update(
-            {
-                key: value
-                for key, value in deterministic.items()
-                if value is not None and value != ""
-            }
-        )
+        # Layer deterministic values (highest confidence for precise regex / cell parsing)
+        if isinstance(deterministic, dict):
+            interpreted.update(
+                {
+                    key: value
+                    for key, value in deterministic.items()
+                    if value is not None and value != ""
+                }
+            )
+
         logger.warning("RAW_HEADERS=%s", raw_table.get("headers"))
+        logger.warning("FROM_HEADERS=%s", from_headers)
         logger.warning("DETERMINISTIC=%s", deterministic)
         logger.warning("LLM_RESULT=%s", llm_result)
         logger.warning("INTERPRETED=%s", interpreted)
         normalized = self._normalize_interpreted_values(interpreted)
-        # Return whatever was normalized — even if only cost fields were
-        # found and no dimensions. An empty dict drops all extracted data.
         return normalized if normalized else interpreted
 
     def _interpret_from_headers(self, raw_table: dict[str, Any]) -> dict[str, Any]:
@@ -1122,6 +1456,7 @@ class SupplierNegotiationService:
         )
         # Process remaining fields
         for field in [
+            "part_number",
             "material",
             "material_grade",
             "material_rate",
@@ -1129,14 +1464,19 @@ class SupplierNegotiationService:
             "process_information",
             "finished_weight",
             "scrap_weight",
+            "scrap_rate",
+            "scrap_recovery",
             "blank_weight",
             "gross_weight",
+            "part_weight",
+            "yield_percentage",
             "raw_material_cost",
             "conversion_cost",
             "coating_cost",
             "overhead_cost",
             "icc_cost",
             "rejection_cost",
+            "rejection_recovery",
             "profit",
             "packing_cost",
             "transport_cost",
@@ -2554,23 +2894,36 @@ class SupplierNegotiationService:
     @staticmethod
     def _find_row_cost_value(row) -> float | None:
         """Find the cost value in a row by scanning right-to-left for the
-        last numeric cell.  This avoids hardcoding a column index."""
-        for cell in reversed(row):
+        last numeric cell strictly after the text description.
+        This avoids hardcoding column index and avoids serial numbers in col 0/1."""
+        text_indices = [
+            i for i, cell in enumerate(row)
+            if cell is not None and any(c.isalpha() for c in str(cell))
+        ]
+        if not text_indices:
+            candidates = list(enumerate(row))[2:]
+            for idx, cell in reversed(candidates):
+                if cell in (None, ""):
+                    continue
+                try:
+                    return float(cell)
+                except (ValueError, TypeError):
+                    continue
+            return None
+
+        last_text_idx = max(text_indices)
+        for cell in reversed(row[last_text_idx + 1:]):
             if cell in (None, ""):
                 continue
             try:
-                val = float(cell)
-                # Skip values that look like serial numbers / years / indices
-                # Cost values in Tata costing sheets are typically < 100000
-                if val != 0:
-                    return val
+                return float(cell)
             except (ValueError, TypeError):
                 continue
         return None
 
     def _extract_cost_fields_from_rows(self, rows):
         result = {}
-        for row in rows:
+        for i, row in enumerate(rows):
             text = " ".join(
                 str(x).upper()
                 for x in row
@@ -2578,25 +2931,31 @@ class SupplierNegotiationService:
             )
             cost = self._find_row_cost_value(row)
             # Raw material cost
-            if "R. M. COST" in text or "RM COST" in text or "RAW MATERIAL COST" in text or "NET MATL" in text:
-                if cost is not None:
-                    result["raw_material_cost"] = cost
-            # Conversion cost — extract directly (was previously skipped)
+            if any(term in text for term in ["R. M. COST", "RM COST", "RAW MATERIAL COST", "NET MATL"]):
+                val = cost
+                if val is None and i + 1 < len(rows):
+                    val = self._find_row_cost_value(rows[i + 1])
+                if val is not None:
+                    result["raw_material_cost"] = val
+            # Conversion cost
             elif "CONVERSION COST" in text or "TOTAL CON" in text:
-                if cost is not None:
-                    result["conversion_cost"] = cost
+                if not any(h in text for h in ["PR ST", "RS/STROKE", "TONNAGE", "NO. OF STROKE"]):
+                    val = cost
+                    if val is None and i + 1 < len(rows):
+                        val = self._find_row_cost_value(rows[i + 1])
+                    if val is not None:
+                        result["conversion_cost"] = val
             # Surface protection / coating
             elif "SURFACE PROTECTION" in text or "COATING" in text or "PLATING" in text:
                 if cost is not None:
                     result["coating_cost"] = cost
-                # Detect coating type
                 if "POWDER" in text:
                     result["coating"] = "POWDER COATING"
                 elif "ZINC" in text:
                     result["coating"] = "ZINC PLATING"
                 elif "PAINT" in text:
                     result["coating"] = "PAINTING"
-                else:
+                elif "PLATING" in text:
                     result["coating"] = "PLATING"
             # Overhead
             elif "OVERHEAD" in text:
@@ -2606,11 +2965,15 @@ class SupplierNegotiationService:
             elif "I.C.C" in text or "ICC" in text:
                 if cost is not None:
                     result["icc_cost"] = cost
-            # Rejection (match "REJECTION(@" and "REJECTION" variants)
+            # Rejection recovery (must check before generic REJECTION)
+            elif "REJECTION RECOVERY" in text or "REJECTION REC" in text:
+                if cost is not None:
+                    result["rejection_recovery"] = cost
+            # Rejection
             elif "REJECTION" in text:
                 if cost is not None:
                     result["rejection_cost"] = cost
-            # Profit (match "PROFIT(@" and "PROFIT" variants)
+            # Profit
             elif "PROFIT" in text:
                 if cost is not None:
                     result["profit"] = cost
@@ -2626,8 +2989,7 @@ class SupplierNegotiationService:
             elif text.strip().startswith("TOTAL") or text.strip() == "TOTAL":
                 if cost is not None:
                     result["total_cost"] = cost
-        # Fallback: if conversion_cost wasn't found, scan for it in rows
-        # following a "CONVERSION COST" header row
+        # Fallback: if conversion_cost wasn't found, scan for it in rows following a "CONVERSION COST" header row
         if "conversion_cost" not in result:
             for i, row in enumerate(rows):
                 text = " ".join(

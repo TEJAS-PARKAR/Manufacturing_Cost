@@ -199,3 +199,47 @@ def test_session_response_excludes_raw_excel_rows() -> None:
 
     assert "raw_table" not in public_payload
     assert public_payload["extracted_data"]["material"] == "CRCA"
+
+
+def test_dataset_1_excel_extraction() -> None:
+    import os
+    file_path = os.path.join(os.path.dirname(__file__), "..", "..", "dataset-1.xlsx")
+    if not os.path.exists(file_path):
+        return
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    service = SupplierNegotiationService()
+    result = service.ingest_excel(
+        employee_id="EMP_TEST",
+        part_number="123456789012",
+        file_bytes=file_bytes,
+        filename="dataset-1.xlsx",
+    )
+
+    extracted = result["extracted_data"]
+    # Verify dimensions are accurate (not corrupted by Blanking press operation)
+    assert extracted["part_thickness"] == 2.0
+    assert extracted["part_width"] == 95.0
+    assert extracted["part_length"] == 214.0
+    assert extracted["dimensions"] == [2.0, 95.0, 214.0]
+
+    # Verify material, grade, and rate
+    assert "DD 1079" in extracted["material"]
+    assert extracted["material_rate"] == 58.76
+
+    # Verify key cost breakdown fields
+    assert extracted["raw_material_cost"] == 16.7
+    assert extracted["conversion_cost"] == 3.29
+    assert extracted["coating_cost"] == 4.2
+    assert extracted["coating"] == "PLATING"
+    assert extracted["overhead_cost"] == 0.33
+    assert extracted["icc_cost"] == 0.33
+    assert extracted["rejection_cost"] == 0.4
+    assert extracted["profit"] == 2.0
+    assert extracted["total_cost"] == 35.1
+
+    # Verify no mandatory fields are missing
+    assert result["missing_fields"] == []
+
