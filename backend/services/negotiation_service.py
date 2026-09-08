@@ -1941,7 +1941,6 @@ class SupplierNegotiationService:
         ):
             adjusted_length = result["effective_part_length"]
             adjusted_width = result["effective_part_width"]
-
             # Preserve original dimensions
             data["original_part_length"] = (
                 data.get("part_length")
@@ -1968,6 +1967,10 @@ class SupplierNegotiationService:
                 float(adjusted_width),
                 float(adjusted_length),
             ]
+            best = result["best_option"]
+            data["sheet_length"] = best["sheet_length"]
+            data["sheet_width"] = best["sheet_width"]
+            data["quantity"] = best["num_parts"]
             self._recalculate_dimension_weights(data)
             data["allowance_applied"] = True
             logger.debug(
