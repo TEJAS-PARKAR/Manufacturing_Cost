@@ -1263,9 +1263,32 @@ RULES:
 10. Full sheet weight must be returned as blank_weight, NOT gross_weight.
 11. If a missing field cannot be found in the sheet, omit it entirely. Do NOT guess or return null.
 12. Return {{}} if no missing fields can be found.
-13. If a value cannot be explicitly associated with a field, do NOT return it.
-14. Do not assume a cost belongs to packing_cost or transport_cost unless the value appears on the same row or is clearly associated with the label.
-15. Return nothing rather than guessing."""
+
+CRITICAL RULE FOR PACKING COST AND TRANSPORT COST:
+
+For packing_cost and transport_cost, use STRICT EVIDENCE ONLY.
+A cost value may only be assigned when the numeric value is explicitly associated with the corresponding label in the sheet.
+DO NOT infer relationships from nearby rows.
+DO NOT use proximity.
+DO NOT use assumptions.
+DO NOT use business interpretation.
+DO NOT guess.
+
+Examples:
+
+  "Packing      7.43" → {{"packing_cost": 7.43}}
+  "Transportation      3.50" → {{"transport_cost": 3.50}}
+  "Transportation\\nPacking\\n7.43" → {{}} (value on separate row, not attached to either label)
+  "Transportation\\nPacking\\nTOTAL" → {{}} (no explicit value exists)
+
+CONFIDENCE REQUIREMENT:
+Only return packing_cost or transport_cost if the sheet clearly proves the mapping.
+If there is any ambiguity whatsoever, omit the field completely.
+It is preferable to return no value than to return an incorrect value.
+When uncertain, return {{}}.
+
+If a value cannot be explicitly associated with a field, do NOT return it.
+Return nothing rather than guessing."""
 
             payload = {
                 "model": self.groq_model,
