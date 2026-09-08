@@ -1262,7 +1262,10 @@ RULES:
 9. Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
 10. Full sheet weight must be returned as blank_weight, NOT gross_weight.
 11. If a missing field cannot be found in the sheet, omit it entirely. Do NOT guess or return null.
-12. Return {{}} if no missing fields can be found."""
+12. Return {{}} if no missing fields can be found.
+13. If a value cannot be explicitly associated with a field, do NOT return it.
+14. Do not assume a cost belongs to packing_cost or transport_cost unless the value appears on the same row or is clearly associated with the label.
+15. Return nothing rather than guessing."""
 
             payload = {
                 "model": self.groq_model,
