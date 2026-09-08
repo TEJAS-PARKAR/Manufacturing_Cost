@@ -2840,56 +2840,40 @@ class SupplierNegotiationService:
             )
 
 
-    def _recalculate_dimension_weights(self, data: dict[str, Any]) -> None:
-        length = float(
-            data.get("part_length")
-            or data.get("length")
-            or 0
-        )
-        width = float(
-            data.get("part_width")
-            or data.get("width")
-            or 0
-        )
+    def _recalculate_dimension_weights(self, data):
+        sheet_length = float(data.get("sheet_length") or 0)
+        sheet_width = float(data.get("sheet_width") or 0)
         thickness = float(
             data.get("part_thickness")
             or data.get("sheet_thickness")
             or data.get("thickness")
             or 0
         )
-        if length <= 0 or width <= 0 or thickness <= 0:
+        quantity = float(data.get("quantity") or 0)
+        if (
+            sheet_length <= 0
+            or sheet_width <= 0
+            or thickness <= 0
+            or quantity <= 0
+        ):
             return
-        # ------------------------------------------------
-        # Blank Weight = Optimal Full Sheet Weight
-        # ------------------------------------------------
-        optimization = self._validate_sheet_optimization(
-            data,
-            includes_cutting_allowance=True
+        blank_weight = (
+            sheet_length
+            * sheet_width
+            * thickness
+            * 7.854
+        ) / 1_000_000
+        gross_weight = blank_weight / quantity
+        data["blank_weight"] = round(blank_weight, 3)
+        data["gross_weight"] = round(gross_weight, 3)
+        finished_weight = float(
+            data.get("finished_weight") or 0
         )
-        best_option = optimization.get("best_option")
-        if best_option and best_option.get("num_parts", 0) > 0:
-            sheet_length = best_option["sheet_length"]
-            sheet_width = best_option["sheet_width"]
-            blank_weight = (
-                sheet_length
-                * sheet_width
-                * thickness
-                * 7.854
-            ) / 1_000_000
-            data["blank_weight"] = round(blank_weight, 3)
-            gross_weight = (
-                blank_weight
-                / best_option["num_parts"]
+        if finished_weight > 0:
+            data["scrap_weight"] = round(
+                max(0, gross_weight - finished_weight),
+                3
             )
-            data["gross_weight"] = round(gross_weight, 3)
-            finished_weight = float(
-                data.get("finished_weight") or 0
-            )
-            if finished_weight > 0:
-                data["scrap_weight"] = round(
-                    max(0, gross_weight - finished_weight),
-                    3
-                )
 
     @staticmethod
     def _find_row_cost_value(row) -> float | None:
