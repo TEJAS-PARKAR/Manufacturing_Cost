@@ -8,13 +8,8 @@ function fmt(v) {
 export default function CostSummary({ session }) {
   const extracted = session?.extracted_data || {};
 
-  // Compute sheet weight: sheet_l × sheet_w × thickness × 7.85 / 10^6
-  const sheetL = parseFloat(extracted.sheet_length || 0);
-  const sheetW = parseFloat(extracted.sheet_width || 0);
-  const sheetT = parseFloat(extracted.sheet_thickness || extracted.thickness || 0);
-  const sheetWeight = sheetL > 0 && sheetW > 0 && sheetT > 0
-    ? (sheetL * sheetW * sheetT * 7.85 / 1e6).toFixed(2)
-    : '—';
+  // Display backend-calculated blank weight
+  const sheetWeight = fmt(extracted.blank_weight);
 
   const costRows = [
     ['RM Cost',          extracted.raw_material_cost],
