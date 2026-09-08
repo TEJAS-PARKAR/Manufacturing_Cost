@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from collections import OrderedDict
-
 from datetime import datetime, timezone
 from io import BytesIO
 import json
@@ -678,7 +676,7 @@ class SupplierNegotiationService:
         workbook = load_workbook(buffer, data_only=True)
         worksheet = workbook.active
         rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
-        for i, row in enumerate(rows[:30]):
+        for i, row in enumerate(rows[:50]):
             logger.warning("ROW_%s=%s", i, row)
         # Find first non-empty row and treat it as header row
         header_idx = 0
