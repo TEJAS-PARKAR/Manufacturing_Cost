@@ -101,7 +101,7 @@ def test_excel_upload_builds_raw_table_and_interpretation_layers() -> None:
 
 def test_wrapped_llm_extracted_data_is_preserved_in_response() -> None:
     service = SupplierNegotiationService()
-    service._interpret_with_llm = lambda raw_table: {
+    service._interpret_with_llm = lambda raw_table, already_extracted=None: {
         "extracted_data": {
             "quantity": 1200,
             "material": "CRCA",
@@ -120,7 +120,7 @@ def test_wrapped_llm_extracted_data_is_preserved_in_response() -> None:
 
 def test_empty_llm_interpretation_falls_back_to_headers() -> None:
     service = SupplierNegotiationService()
-    service._interpret_with_llm = lambda raw_table: {
+    service._interpret_with_llm = lambda raw_table, already_extracted=None: {
         "quantity": None,
         "material": None,
         "material_rate": None,

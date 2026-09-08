@@ -1095,8 +1095,17 @@ class SupplierNegotiationService:
             cost_fields = self._extract_cost_fields_from_rows(all_rows)
             deterministic.update(cost_fields)
 
-        # 3. Always call LLM to get additional extraction
-        llm_result = self._interpret_with_llm(raw_table) or {}
+        # 3. Collect already-extracted keys so LLM only fills gaps
+        already_extracted: dict[str, Any] = {}
+        if isinstance(from_headers, dict):
+            already_extracted.update(
+                {k: v for k, v in from_headers.items() if v is not None and v != ""}
+            )
+        if isinstance(deterministic, dict):
+            already_extracted.update(
+                {k: v for k, v in deterministic.items() if v is not None and v != ""}
+            )
+        llm_result = self._interpret_with_llm(raw_table, already_extracted) or {}
         if isinstance(llm_result, dict) and isinstance(llm_result.get("extracted_data"), dict):
             llm_result = llm_result["extracted_data"]
 
@@ -1168,9 +1177,10 @@ class SupplierNegotiationService:
             interpreted["process_information"] = process_information
         return interpreted
     
-    def _interpret_with_llm(self, raw_table: dict[str, Any]) -> dict[str, Any]:
+    def _interpret_with_llm(self, raw_table: dict[str, Any], already_extracted: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.groq_api_key:
             return {}
+        already_extracted = already_extracted or {}
         try:
             # H2: Truncate rows to avoid context window overflow on large sheets
             rows = raw_table.get("rows", [])
@@ -1182,75 +1192,85 @@ class SupplierNegotiationService:
             if len(raw_table.get("rows", [])) > 50:
                 row_note = f" (showing first 50 of {len(raw_table['rows'])} rows)"
 
+            # Build the list of all possible fields with descriptions
+            all_fields = {
+                "quantity": "integer — production batch quantity (e.g. 132)",
+                "material": 'string — single material name/grade (e.g. "10 MM E 46", "CRCA")',
+                "material_grade": 'string — grade only (e.g. "E 46")',
+                "material_rate": "number — Rs/kg rate from the raw material section (e.g. 60.3)",
+                "sheet_length": "number — Full Sheet length in mm",
+                "sheet_width": "number — Full Sheet width in mm",
+                "sheet_thickness": "number — Full Sheet thickness in mm",
+                "part_length": 'number — Shear/Blank length in mm',
+                "part_width": 'number — Shear/Blank width in mm',
+                "part_thickness": 'number — Shear/Blank thickness in mm',
+                "thickness": "number — same as sheet_thickness",
+                "width": "number — same as part_width",
+                "length": "number — same as part_length",
+                "gross_weight": "number — weight per component (blank_weight / number_of_parts). Do NOT map full sheet weight here.",
+                "finished_weight": "number — finished weight per piece in kg",
+                "scrap_weight": "number — scrap weight per piece in kg",
+                "blank_weight": "number — full sheet weight in kg",
+                "raw_material_cost": 'number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")',
+                "conversion_cost": 'number — total conversion cost per piece (look for "TOTAL CON. COST")',
+                "coating_cost": "number — sum of all coating/surface protection costs per piece",
+                "overhead_cost": "number — overhead per piece",
+                "icc_cost": "number — ICC on raw material per piece",
+                "rejection_cost": "number — rejection allowance per piece",
+                "profit": "number — profit per piece",
+                "packing_cost": "number — packing cost per piece",
+                "transport_cost": "number — transport cost per piece",
+                "total_cost": 'number — final TOTAL cost per piece (the last/bottom "TOTAL" in the sheet)',
+                "coating": 'string — coating type (e.g. "POWDER COATING", "ZINC PLATING")',
+                "process_information": 'array of {"process": string, "cost": number} — individual process line items',
+            }
+
+            # Determine which fields the LLM still needs to find
+            missing_fields = {
+                k: v for k, v in all_fields.items()
+                if k not in already_extracted
+            }
+
+            # If deterministic extraction found everything, skip the LLM call
+            if not missing_fields:
+                logger.info("All fields already extracted deterministically, skipping LLM call")
+                return {}
+
+            # Build the targeted prompt listing only missing fields
+            missing_field_lines = "\n".join(
+                f'  "{k}": {v}' for k, v in missing_fields.items()
+            )
+            already_keys_str = ", ".join(sorted(already_extracted.keys()))
+
+            system_prompt = f"""You are an expert in Tata Motors supplier costing sheets.
+
+The following fields have ALREADY been extracted and are LOCKED. Do NOT return them:
+[{already_keys_str}]
+
+Extract ONLY these missing fields from the sheet data:
+{missing_field_lines}
+
+RULES:
+1. Return a JSON object containing ONLY the missing fields you can find.
+2. Only process_information may be an array of objects. All other fields must be scalar values.
+3. "material" must be a SINGLE STRING, not a list or array.
+4. Every numeric field must be a single number, never an expression.
+5. Extract "Full Sheet Size" dimensions into sheet_length, sheet_width, sheet_thickness.
+6. Extract "Shear Size" or "Blank Size" dimensions into part_length, part_width, part_thickness.
+7. Sum all coating-related line items (powder coating + shot blasting + primer) into coating_cost.
+8. Use the "NET MATL. COST PER PIECE" row value as raw_material_cost.
+9. Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
+10. Full sheet weight must be returned as blank_weight, NOT gross_weight.
+11. If a missing field cannot be found in the sheet, omit it entirely. Do NOT guess or return null.
+12. Return {{}} if no missing fields can be found."""
+
             payload = {
                 "model": self.groq_model,
                 "max_completion_tokens": 2048,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are an expert in Tata Motors supplier costing sheets.
-
-                        Return a JSON object.
-
-                        Only process_information may be an array of objects.
-                        All other fields must be scalar values.
-
-                        RETURN THESE EXACT KEYS (use null if not found):
-
-                        "quantity"            : integer — production batch quantity (e.g. 132)
-                        "material"            : string — single material name/grade (e.g. "10 MM E 46", "CRCA")
-                        "material_grade"      : string — grade only (e.g. "E 46")
-                        "material_rate"       : number — Rs/kg rate from the raw material section (e.g. 60.3)
-
-                        SHEET DIMENSIONS (from "Full Sheet Size" row):
-                        "sheet_length"        : number — Full Sheet length in mm
-                        "sheet_width"         : number — Full Sheet width in mm
-                        "sheet_thickness"     : number — Full Sheet thickness in mm
-
-                        PART DIMENSIONS (from "Shear Size" or "Blank Size" row):
-                        "part_length"         : number — Shear/Blank length in mm
-                        "part_width"          : number — Shear/Blank width in mm
-                        "part_thickness"      : number — Shear/Blank thickness in mm
-
-                        BACKWARD COMPAT (populate from sheet/part fields):
-                        "thickness"           : number — same as sheet_thickness
-                        "width"               : number — same as part_width
-                        "length"              : number — same as part_length
-
-                        "gross_weight" : number — weight per component
-                        (gross_weight = blank_weight / number_of_parts)
-
-                        IMPORTANT:
-                        Do NOT map full sheet weight to gross_weight.
-                        Full sheet weight must be returned as blank_weight.
-                        "finished_weight"     : number — finished weight per piece in kg (e.g. 1.25)
-                        "scrap_weight"        : number — scrap weight per piece in kg
-                        "blank_weight"        : number — full sheet weight in kg
-                        "raw_material_cost"   : number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")
-                        "conversion_cost"     : number — total conversion cost per piece (look for "TOTAL CON. COST")
-                        "coating_cost"        : number — sum of all coating/surface protection costs per piece
-                        "overhead_cost"       : number — overhead per piece
-                        "icc_cost"            : number — ICC on raw material per piece
-                        "rejection_cost"      : number — rejection allowance per piece
-                        "profit"              : number — profit per piece
-                        "packing_cost"        : number — packing cost per piece
-                        "transport_cost"      : number — transport cost per piece
-                        "total_cost"          : number — final TOTAL cost per piece (the last/bottom "TOTAL" in the sheet)
-                        "coating"             : string — coating type (e.g. "POWDER COATING", "ZINC PLATING")
-                        "process_information" : array of {"process": string, "cost": number} — individual process line items
-
-                        CRITICAL RULES:
-                        - "material" must be a SINGLE STRING, not a list or array.
-                        - Every numeric field must be a single number, never an expression.
-                        - Extract "Full Sheet Size" dimensions into sheet_length, sheet_width, sheet_thickness.
-                        - Extract "Shear Size" or "Blank Size" dimensions into part_length, part_width, part_thickness.
-                        - If only one set of dimensions exists, use it for both sheet_* and part_* fields.
-                        - Also copy sheet_thickness to thickness, part_width to width, part_length to length.
-                        - Sum all coating-related line items (powder coating + shot blasting + primer) into coating_cost.
-                        - Use the "NET MATL. COST PER PIECE" row value as raw_material_cost.
-                        - Use the final "TOTAL" row at the bottom of the cost summary as total_cost.
-                        - Use null if a field is genuinely not present in the sheet.
-                        """
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -1260,11 +1280,13 @@ class SupplierNegotiationService:
                                 "headers": raw_table.get("headers"),
                                 "rows": rows_to_send,
                                 "note": row_note,
+                                "already_extracted_keys": list(already_extracted.keys()),
                             },
                             ensure_ascii=False
                         )
                     }
                 ],
+
                 "temperature": 0.1,
                 "response_format": {"type": "json_object"},
             }
@@ -1274,10 +1296,16 @@ class SupplierNegotiationService:
                 len(raw_table.get("rows", [])),
                 len(raw_table.get("headers", []))
             )
+            logger.info(
+                "LLM extraction: %d fields already extracted, %d missing fields to find",
+                len(already_extracted), len(missing_fields)
+            )
             logger.warning(
-                "GROQ rows=%s cols=%s",
+                "GROQ rows=%s cols=%s already_extracted=%s missing=%s",
                 len(rows_to_send),
-                len(raw_table.get("headers", []))
+                len(raw_table.get("headers", [])),
+                list(already_extracted.keys()),
+                list(missing_fields.keys()),
             )
             response = self._call_groq(payload, timeout=30)
             if response.status_code != 200:
@@ -1342,7 +1370,19 @@ class SupplierNegotiationService:
                 else type(parsed)
             )
             if isinstance(parsed, dict):
-                return parsed
+                # Defense-in-depth: strip keys that were already extracted
+                # and null values (prompt says to omit, but LLMs sometimes don't)
+                filtered = {
+                    k: v for k, v in parsed.items()
+                    if k not in already_extracted and v is not None
+                }
+                if len(filtered) < len(parsed):
+                    dropped = set(parsed.keys()) - set(filtered.keys())
+                    logger.info(
+                        "LLM returned %d keys, filtered to %d (dropped: %s)",
+                        len(parsed), len(filtered), dropped
+                    )
+                return filtered
             return {}
 
         except Exception as e:
