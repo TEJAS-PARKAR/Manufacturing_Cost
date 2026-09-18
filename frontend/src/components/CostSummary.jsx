@@ -39,8 +39,8 @@ export default function CostSummary({ session }) {
         <tbody>
           {/* ── Material Info ── */}
           <tr>
-            <td>Material No.</td>
-            <td>{extracted.material || '—'}</td>
+            <td>Part No.</td>
+            <td>{extracted.part_number || '—'}</td>
           </tr>
           <tr>
             <td>Material Grade</td>
@@ -107,7 +107,7 @@ export default function CostSummary({ session }) {
                 <td colSpan={2}><strong>Net RM Cost Validation</strong></td>
               </tr>
               <tr>
-                <td className="indent">Excel Net RM Cost</td>
+                <td className="indent">Supplier Net RM Cost</td>
                 <td>{netRmValidation.excel_value != null ? `₹ ${fmt(netRmValidation.excel_value)}` : '—'}</td>
               </tr>
               <tr>
