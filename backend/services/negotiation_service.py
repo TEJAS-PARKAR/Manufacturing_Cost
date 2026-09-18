@@ -258,6 +258,10 @@ class SupplierNegotiationService:
         self._recalculate_dimension_weights(
             session["extracted_data"]
         )
+        # Validate Net RM Cost using the final GW / SW values
+        self._validate_net_rm_cost(
+            session["extracted_data"]
+        )
         session["missing_fields"] = self._identify_missing_fields(
             session["extracted_data"]
         )
@@ -2036,6 +2040,10 @@ Return nothing rather than guessing."""
             data["sheet_width"] = best["sheet_width"]
             data["quantity"] = best["num_parts"]
             self._recalculate_dimension_weights(data)
+            # GW / SW changed because of cutting allowance.
+            # Recalculate the adjusted Net RM Cost, but do NOT compare
+            # it against the original supplier Excel Net RM Cost.
+            self._recalculate_adjusted_net_rm_cost(data)
             data["allowance_applied"] = True
             logger.debug(
                 "Cutting allowance applied. "
@@ -2901,11 +2909,204 @@ Return nothing rather than guessing."""
             data.get("finished_weight") or 0
         )
         if gross_weight > 0 and finished_weight > 0:
-            data["scrap_weight"] = round(
-                max(0, gross_weight - finished_weight),
-                3
+            data["scrap_weight"] = max(
+                0,
+                gross_weight - finished_weight
             )
 
+    def _validate_net_rm_cost(
+        self,
+        data: dict[str, Any]
+    ) -> None:
+        """
+        Calculate and validate Net RM Cost against the value extracted
+        from the supplier Excel sheet.
+        Formula:
+            Net RM Cost =
+            (Gross Weight * RM Rate)
+            - (Scrap Weight * Scrap Rate)
+        Validation is performed after rounding both the calculated value
+        and the Excel value to 2 decimal places.
+        The original Excel raw_material_cost is NEVER overwritten.
+        """
+        required_fields = [
+            "gross_weight",
+            "material_rate",
+            "scrap_weight",
+            "scrap_rate",
+        ]
+        # Do not calculate if any required input is unavailable.
+        missing_inputs = [
+            field
+            for field in required_fields
+            if data.get(field) is None or data.get(field) == ""
+        ]
+        if missing_inputs:
+            data.pop("calculated_net_rm_cost", None)
+            data["net_rm_cost_validation"] = {
+                "status": "cannot_validate",
+                "matches": None,
+                "missing_inputs": missing_inputs,
+            }
+            return
+        try:
+            gross_weight = float(data["gross_weight"])
+            material_rate = float(data["material_rate"])
+            scrap_weight = float(data["scrap_weight"])
+            scrap_rate = float(data["scrap_rate"])
+        except (TypeError, ValueError):
+            data.pop("calculated_net_rm_cost", None)
+
+            data["net_rm_cost_validation"] = {
+                "status": "cannot_validate",
+                "matches": None,
+                "reason": "One or more Net RM Cost inputs are non-numeric.",
+            }
+            return
+        gross_material_cost = gross_weight * material_rate
+        scrap_recovery = scrap_weight * scrap_rate
+        calculated_net_rm_cost = (
+            gross_material_cost - scrap_recovery
+        )
+        calculated_rounded = round(
+            calculated_net_rm_cost,
+            2
+        )
+        # Store calculated value separately.
+        data["calculated_net_rm_cost"] = calculated_rounded
+        # raw_material_cost remains the supplier Excel value.
+        excel_value = data.get("raw_material_cost")
+        if excel_value is None or excel_value == "":
+            data["net_rm_cost_validation"] = {
+                "status": "excel_value_missing",
+                "matches": None,
+                "excel_value": None,
+                "calculated_value": calculated_rounded,
+                "gross_material_cost": round(
+                    gross_material_cost,
+                    2
+                ),
+                "scrap_recovery": round(
+                    scrap_recovery,
+                    2
+                ),
+            }
+            return
+        try:
+            excel_rounded = round(
+                float(excel_value),
+                2
+            )
+        except (TypeError, ValueError):
+            data["net_rm_cost_validation"] = {
+                "status": "cannot_validate",
+                "matches": None,
+                "reason": "Excel Net RM Cost is non-numeric.",
+                "calculated_value": calculated_rounded,
+            }
+            return
+        matches = (
+            calculated_rounded == excel_rounded
+        )
+        data["net_rm_cost_validation"] = {
+            "status": "matched" if matches else "mismatch",
+            "matches": matches,
+            "excel_value": excel_rounded,
+            "calculated_value": calculated_rounded,
+            "difference": round(
+                calculated_rounded - excel_rounded,
+                2
+            ),
+            "gross_material_cost": round(
+                gross_material_cost,
+                2
+            ),
+            "scrap_recovery": round(
+                scrap_recovery,
+                2
+            ),
+            "inputs": {
+                "gross_weight": gross_weight,
+                "material_rate": material_rate,
+                "scrap_weight": scrap_weight,
+                "scrap_rate": scrap_rate,
+            },
+        }
+        
+    def _recalculate_adjusted_net_rm_cost(
+        self,
+        data: dict[str, Any]
+    ) -> None:
+        """
+        Recalculate Net RM Cost after system-driven changes such as
+        cutting allowance / sheet optimization.
+        Formula:
+            Adjusted Net RM Cost =
+            (Gross Weight * RM Rate)
+            - (Scrap Weight * Scrap Rate)
+        This does NOT validate against raw_material_cost because
+        raw_material_cost belongs to the originally uploaded Excel sheet.
+        """
+        required_fields = [
+            "gross_weight",
+            "material_rate",
+            "scrap_weight",
+            "scrap_rate",
+        ]
+        missing_inputs = [
+            field
+            for field in required_fields
+            if data.get(field) is None or data.get(field) == ""
+        ]
+        if missing_inputs:
+            data.pop("adjusted_net_rm_cost", None)
+            data["adjusted_net_rm_cost_details"] = {
+                "status": "cannot_calculate",
+                "missing_inputs": missing_inputs,
+            }
+            return
+        try:
+            gross_weight = float(data["gross_weight"])
+            material_rate = float(data["material_rate"])
+            scrap_weight = float(data["scrap_weight"])
+            scrap_rate = float(data["scrap_rate"])
+        except (TypeError, ValueError):
+            data.pop("adjusted_net_rm_cost", None)
+            data["adjusted_net_rm_cost_details"] = {
+                "status": "cannot_calculate",
+                "reason": "One or more Net RM Cost inputs are non-numeric.",
+            }
+            return
+        gross_material_cost = gross_weight * material_rate
+        scrap_recovery = scrap_weight * scrap_rate
+        adjusted_net_rm_cost = (
+            gross_material_cost - scrap_recovery
+        )
+        data["adjusted_net_rm_cost"] = round(
+            adjusted_net_rm_cost,
+            2
+        )
+        data["adjusted_net_rm_cost_details"] = {
+            "status": "calculated",
+            "calculated_value": round(
+                adjusted_net_rm_cost,
+                2
+            ),
+            "gross_material_cost": round(
+                gross_material_cost,
+                2
+            ),
+            "scrap_recovery": round(
+                scrap_recovery,
+                2
+            ),
+            "inputs": {
+                "gross_weight": gross_weight,
+                "material_rate": material_rate,
+                "scrap_weight": scrap_weight,
+                "scrap_rate": scrap_rate,
+            },
+        }
 
     def _recalculate_dimension_weights(self, data):
         sheet_length = float(data.get("sheet_length") or 0)
@@ -2931,15 +3132,15 @@ Return nothing rather than guessing."""
             * 7.854
         ) / 1_000_000
         gross_weight = blank_weight / quantity
-        data["blank_weight"] = round(blank_weight, 3)
-        data["gross_weight"] = round(gross_weight, 3)
+        data["blank_weight"] = blank_weight
+        data["gross_weight"] = gross_weight
         finished_weight = float(
             data.get("finished_weight") or 0
         )
         if finished_weight > 0:
-            data["scrap_weight"] = round(
-                max(0, gross_weight - finished_weight),
-                3
+            data["scrap_weight"] = max(
+                0,
+                gross_weight - finished_weight
             )
 
     @staticmethod

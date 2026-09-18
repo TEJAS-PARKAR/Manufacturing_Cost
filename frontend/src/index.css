@@ -1499,3 +1499,148 @@ html, body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ─────────────────────────────────────────────
+   Net RM Cost Validation
+   ───────────────────────────────────────────── */
+
+.net-rm-validation-card {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid #94a3b8;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.net-rm-validation-card.matched {
+  border-left-color: #00a86b;
+}
+
+.net-rm-validation-card.mismatch {
+  border-left-color: #dc3545;
+}
+
+.net-rm-validation-card.pending {
+  border-left-color: #e8b300;
+}
+
+.net-rm-validation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.net-rm-validation-header h4 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  color: #1b3a5c;
+}
+
+.net-rm-validation-header p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.net-rm-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.net-rm-status.matched {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.net-rm-status.mismatch {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.net-rm-status.pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.net-rm-values {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.net-rm-value {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.85rem;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.net-rm-value span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.net-rm-value strong {
+  color: #1b3a5c;
+  font-size: 1rem;
+}
+
+.adjusted-net-rm {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
+
+.adjusted-net-rm div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.adjusted-net-rm span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+
+.adjusted-net-rm small {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.adjusted-net-rm strong {
+  color: #1b3a5c;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+  .net-rm-values {
+    grid-template-columns: 1fr;
+  }
+
+  .net-rm-validation-header {
+    flex-direction: column;
+  }
+
+  .adjusted-net-rm {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
