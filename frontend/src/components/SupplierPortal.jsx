@@ -43,9 +43,6 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
   const extracted = session.extracted_data || {};
   const status = session.status || 'active';
   const sheetOpt = session.sheet_optimization || {};
-  const netRmValidation = extracted.net_rm_cost_validation || null;
-  const adjustedNetRmCost = extracted.adjusted_net_rm_cost;
-  const allowanceApplied = extracted.allowance_applied === true;
 
   // ── Restore state from session on mount / session change ──
   useEffect(() => {
@@ -187,43 +184,6 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
           variant="success"
         />
       </div>
-
-      {netRmValidation && (
-        <div className={`net-rm-validation-card ${netRmValidation.matches === true ? 'matched' : netRmValidation.matches === false ? 'mismatch' : 'pending'}`}>
-          <div className="net-rm-validation-header">
-            <div>
-              <h4>Net RM Cost Validation</h4>
-              <p>GW × RM Rate − Scrap Weight × Scrap Rate</p>
-            </div>
-            <span className={`net-rm-status ${netRmValidation.matches === true ? 'matched' : netRmValidation.matches === false ? 'mismatch' : 'pending'}`}>
-              {netRmValidation.matches === true ? '✓ Matched' : netRmValidation.matches === false ? '✕ Mismatch' : 'Not Validated'}
-            </span>
-          </div>
-
-          <div className="net-rm-values">
-            <div className="net-rm-value">
-              <span>Excel Net RM Cost</span>
-              <strong>{netRmValidation.excel_value != null ? `₹ ${fmt(netRmValidation.excel_value)}` : '—'}</strong>
-            </div>
-            <div className="net-rm-value">
-              <span>Calculated Net RM Cost</span>
-              <strong>{netRmValidation.calculated_value != null ? `₹ ${fmt(netRmValidation.calculated_value)}` : '—'}</strong>
-            </div>
-            <div className="net-rm-value">
-              <span>Difference</span>
-              <strong>{netRmValidation.difference != null ? `₹ ${fmt(netRmValidation.difference)}` : '—'}</strong>
-            </div>
-          </div>
-
-          {allowanceApplied && adjustedNetRmCost != null && (
-            <div className="adjusted-net-rm">
-              <span>Adjusted Net RM Cost</span>
-              <strong>₹ {fmt(adjustedNetRmCost)}</strong>
-              <small>After cutting / shearing allowance</small>
-            </div>
-          )}
-        </div>
-      )}
 
       {session.missing_fields && session.missing_fields.length > 0 ? (
         <div className="alert alert-warning">

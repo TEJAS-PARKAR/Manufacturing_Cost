@@ -7,6 +7,9 @@ function fmt(v) {
 
 export default function CostSummary({ session }) {
   const extracted = session?.extracted_data || {};
+  const netRmValidation = extracted.net_rm_cost_validation || null;
+  const adjustedNetRmCost = extracted.adjusted_net_rm_cost;
+  const allowanceApplied = extracted.allowance_applied === true;
 
   // Display backend-calculated blank weight
   const sheetWeight = fmt(extracted.blank_weight);
@@ -21,7 +24,6 @@ export default function CostSummary({ session }) {
     ['Profit',           extracted.profit],
     ['Packing Cost',     extracted.packing_cost],
     ['Transport Cost',   extracted.transport_cost],
-    ['Total Cost',       extracted.total_cost],
   ];
 
   return (
@@ -90,16 +92,51 @@ export default function CostSummary({ session }) {
             <td className="indent">Gross Weight (kg)</td>
             <td>{fmt(extracted.gross_weight)}</td>
           </tr>
-
-          {/* ── Weights ── */}
           <tr>
-            <td>Finished Weight</td>
+            <td className="indent">Finished Weight (kg)</td>
             <td>{fmt(extracted.finished_weight)}</td>
           </tr>
           <tr>
-            <td>Scrap Weight</td>
+            <td className="indent">Scrap Weight (kg)</td>
             <td>{fmt(extracted.scrap_weight)}</td>
           </tr>
+
+          {netRmValidation && (
+            <>
+              <tr className="dimension-section-header net-rm-summary-header">
+                <td colSpan={2}><strong>Net RM Cost Validation</strong></td>
+              </tr>
+              <tr>
+                <td className="indent">Excel Net RM Cost</td>
+                <td>{netRmValidation.excel_value != null ? `₹ ${fmt(netRmValidation.excel_value)}` : '—'}</td>
+              </tr>
+              <tr>
+                <td className="indent">Calculated Net RM Cost</td>
+                <td>{netRmValidation.calculated_value != null ? `₹ ${fmt(netRmValidation.calculated_value)}` : '—'}</td>
+              </tr>
+              <tr>
+                <td className="indent">Difference</td>
+                <td>{netRmValidation.difference != null ? `₹ ${fmt(netRmValidation.difference)}` : '—'}</td>
+              </tr>
+              <tr>
+                <td className="indent">Validation Status</td>
+                <td>
+                  <span className={`net-rm-summary-status ${netRmValidation.matches === true ? 'matched' : netRmValidation.matches === false ? 'mismatch' : 'pending'}`}>
+                    {netRmValidation.matches === true ? '✓ Matched' : netRmValidation.matches === false ? '✕ Mismatch' : 'Not Validated'}
+                  </span>
+                </td>
+              </tr>
+              {allowanceApplied && adjustedNetRmCost != null && (
+                <tr className="adjusted-net-rm-row">
+                  <td className="indent">
+                    <span>Adjusted Net RM Cost</span>
+                    <small>After cutting / shearing allowance</small>
+                  </td>
+                  <td>₹ {fmt(adjustedNetRmCost)}</td>
+                </tr>
+              )}
+            </>
+          )}
 
           {/* ── Cost Components ── */}
           <tr className="dimension-section-header">
@@ -111,6 +148,12 @@ export default function CostSummary({ session }) {
               <td>{fmt(value)}</td>
             </tr>
           ))}
+          <tr className="total-cost-section-header">
+            <td colSpan={2}><strong>Total Cost</strong></td>
+          </tr>
+          <tr className="total-cost-row">
+            <td colSpan={2}>₹ {fmt(extracted.total_cost)}</td>
+          </tr>
         </tbody>
       </table>
     </div>

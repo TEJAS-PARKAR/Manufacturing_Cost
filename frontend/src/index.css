@@ -1200,6 +1200,57 @@ html, body {
   padding-left: 1.5rem;
 }
 
+.net-rm-summary-header td {
+  padding-top: 0.8rem !important;
+}
+
+.net-rm-summary-status {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.net-rm-summary-status.matched {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.net-rm-summary-status.mismatch {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.net-rm-summary-status.pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.adjusted-net-rm-row td {
+  background: #eff6ff;
+}
+
+.adjusted-net-rm-row small {
+  display: block;
+  margin-top: 0.2rem;
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.total-cost-section-header td {
+  padding-top: 1rem !important;
+  border-bottom: 2px solid #1B3A5C !important;
+  color: #1B3A5C;
+}
+
+.total-cost-row td {
+  font-size: 1rem !important;
+  font-weight: 700;
+  color: #1B3A5C !important;
+  background: #f8f9fa;
+}
+
 /* ── Fade-slide animation ── */
 @keyframes fadeSlideIn {
   from {
