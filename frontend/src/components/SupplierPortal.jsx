@@ -80,6 +80,24 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
   const currentStep = getWorkflowStep(session, showAllowancePrompt);
 
+  const processRows = Array.isArray(extracted.process_information)
+    ? extracted.process_information.filter((item) => item && (item.process != null || item.cost != null))
+    : [];
+
+  const costBreakdownRows = [];
+  if (extracted.coating != null || extracted.coating_cost != null) {
+    costBreakdownRows.push({
+      label: 'Coating',
+      value: extracted.coating != null ? String(extracted.coating) : '—',
+    });
+    if (extracted.coating_cost != null) {
+      costBreakdownRows.push({
+        label: 'Coating Cost',
+        value: `₹ ${fmt(extracted.coating_cost)}`,
+      });
+    }
+  }
+
   // ── Excel upload handler ──
   const handleProcessExcel = async (file) => {
     setUploading(true);
@@ -331,7 +349,54 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
         <>
           <hr className="section-divider" />
           <div className="cost-split">
-            <CostChart session={session} />
+            <div className="cost-panel-left">
+              <CostChart session={session} />
+
+              <div className="process-info-panel">
+                <h4 className="section-subheading">Process Information</h4>
+                {processRows.length > 0 ? (
+                  <div className="process-info-card">
+                    <table className="cost-table process-table">
+                      <thead>
+                        <tr>
+                          <th>Process</th>
+                          <th>Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {processRows.map((item, index) => (
+                          <tr key={`${item.process || 'process'}-${index}`}>
+                            <td>{item.process ?? '—'}</td>
+                            <td>{item.cost != null ? `₹ ${fmt(item.cost)}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="section-empty">No process information extracted from the uploaded Excel.</p>
+                )}
+              </div>
+
+              {costBreakdownRows.length > 0 && (
+                <div className="process-info-panel">
+                  <h4 className="section-subheading">Cost Breakdown</h4>
+                  <div className="process-info-card">
+                    <table className="cost-table process-table cost-breakdown-table">
+                      <tbody>
+                        {costBreakdownRows.map((row, index) => (
+                          <tr key={`${row.label}-${index}`} className={row.isTotal ? 'total-cost-row' : ''}>
+                            <td>{row.label}</td>
+                            <td>{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <CostSummary session={session} />
           </div>
         </>
