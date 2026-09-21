@@ -2122,9 +2122,6 @@ Return nothing rather than guessing."""
                 f"Sheet validation completed successfully.\n\n"
                 f"We have reviewed the submitted costing sheet.\n\n"
                 f"Quoted cost: ₹{quote:.2f}\n"
-                f"Expected cost: ₹{expected:.2f}\n\n"
-                "The quotation falls within our acceptable benchmark range "
-                "and may be considered for approval."
             )
         counter_offer = expected
         challenge = self._build_negotiation_question(
@@ -2134,10 +2131,7 @@ Return nothing rather than guessing."""
         return (
             f"Sheet validation completed successfully.\n\n"
             f"Quoted cost: ₹{quote:.2f}\n"
-            f"Expected cost: ₹{expected:.2f}\n"
-            f"Variance: {variance:.2f}%\n\n"
-            f"Our counter-offer is ₹{counter_offer:.2f}.\n\n"
-            f"{challenge}"
+            # f"{challenge}"
         )    
     
 
