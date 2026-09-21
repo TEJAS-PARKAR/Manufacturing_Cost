@@ -82,6 +82,8 @@ const EXCLUDED_KEYS = new Set([
 const PREFERRED_ORDER = [
   'raw_material_cost',
   'conversion_cost',
+  'grinding_chipping_cost',
+  'identification_mark_cost',
   'coating_cost',
   'overhead_cost',
   'icc_cost',

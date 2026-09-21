@@ -63,6 +63,10 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     }
   }, [session.session_key, session.awaiting_allowance_response, sheetOpt.is_optimal]);
 
+  useEffect(() => {
+    setAlert(null);
+  }, [session.session_key]);
+
   // ── Derive blocking state from SESSION data (not just local state) ──
   const needsExcelUpload = extracted.total_cost == null;
   const awaitingAllowance = session.awaiting_allowance_response === true;
