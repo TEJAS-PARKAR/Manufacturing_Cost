@@ -18,6 +18,7 @@ from backend.services.mongo_service import MongoConnection
 logger = logging.getLogger(__name__)
 
 class SupplierNegotiationService:
+    NET_RM_COST_ERROR = "There is an error in the Net RM cost calculation. Correct and Reupload the cost sheet"
     REQUIRED_FIELDS = [
         "dimensions",
         "material",
@@ -209,6 +210,24 @@ class SupplierNegotiationService:
         logger.debug("Excel interpretation result: %s", list(interpretation.keys()))
         session["raw_table"] = raw_table
         session["excel_interpretation"] = interpretation
+        # A reupload is authoritative for RM-cost validation and allowance-derived values.
+        for field in [
+            "raw_material_cost",
+            "gross_weight",
+            "finished_weight",
+            "scrap_weight",
+            "scrap_rate",
+            "calculated_net_rm_cost",
+            "adjusted_net_rm_cost",
+            "adjusted_net_rm_cost_details",
+            "net_rm_cost_validation",
+            "allowance_applied",
+            "original_part_length",
+            "original_part_width",
+        ]:
+            session["extracted_data"].pop(field, None)
+        session["sheet_optimization"] = {}
+        session["awaiting_allowance_response"] = False
         session.setdefault("revisions", [])
         for key, new_value in interpretation.items():
             old_value = session["extracted_data"].get(key)
@@ -281,16 +300,17 @@ class SupplierNegotiationService:
         session["summary"] = self._build_summary(
             session
         )
-        session["negotiation"] = (
-            self.generate_negotiation_recommendation(
-                session["extracted_data"]
+        net_rm_validation = session["extracted_data"].get("net_rm_cost_validation", {})
+        net_rm_blocked = bool(net_rm_validation.get("blocked"))
+        if not net_rm_blocked:
+            session["negotiation"] = (
+                self.generate_negotiation_recommendation(
+                    session["extracted_data"]
+                )
             )
-        )
         session["extracted_data"]["allowance_applied"] = False
-        # Mark that the cutting allowance question needs to be answered
-        session["awaiting_allowance_response"] = True
-        # Clear previous sheet optimization so supplier must re-validate
-        session["sheet_optimization"] = {}
+        # The allowance question is available only after the initial RM-cost check passes.
+        session["awaiting_allowance_response"] = not net_rm_blocked
         logger.debug("Extracted data keys after update: %s", list(session["extracted_data"].keys()))
 
         self._persist_session(session)
@@ -338,6 +358,7 @@ class SupplierNegotiationService:
 
     def _submit_for_review_locked(self, employee_id: str, part_number: str) -> dict[str, Any]:
         session = self._ensure_session(employee_id, part_number)
+        self._raise_if_net_rm_cost_blocked(session)
         session["status"] = "submitted_for_review"
         session["history"].append(
             {
@@ -1960,6 +1981,7 @@ Return nothing rather than guessing."""
 
     def _check_sheet_optimization_locked(self, employee_id, part_number, includes_cutting_allowance):
         session = self._ensure_session(employee_id, part_number)
+        self._raise_if_net_rm_cost_blocked(session)
         data = session["extracted_data"]
         result = self._validate_sheet_optimization(
             data,
@@ -2053,10 +2075,12 @@ Return nothing rather than guessing."""
                 data["original_part_width"],
                 adjusted_width,
             )
+        net_rm_validation = self._validate_net_rm_cost(data)
+        result["net_rm_cost_validation"] = net_rm_validation
         session["sheet_optimization"] = result
         # Allowance question answered
         session["awaiting_allowance_response"] = False
-        if is_optimal:
+        if is_optimal and not net_rm_validation.get("blocked"):
             session["negotiation"]["counter_offer"] = self._compute_expected_cost(data)
             session["history"].append(
                 {
@@ -2384,6 +2408,7 @@ Return nothing rather than guessing."""
 
     def _run_negotiation_locked(self, employee_id, part_number, supplier_message):
         session = self._ensure_session(employee_id, part_number)
+        self._raise_if_net_rm_cost_blocked(session)
         # ── Server-side negotiation gate ──
         if session.get("awaiting_allowance_response"):
             raise ValueError(
@@ -2917,7 +2942,7 @@ Return nothing rather than guessing."""
     def _validate_net_rm_cost(
         self,
         data: dict[str, Any]
-    ) -> None:
+    ) -> dict[str, Any]:
         """
         Calculate and validate Net RM Cost against the value extracted
         from the supplier Excel sheet.
@@ -2946,9 +2971,10 @@ Return nothing rather than guessing."""
             data["net_rm_cost_validation"] = {
                 "status": "cannot_validate",
                 "matches": None,
+                "blocked": False,
                 "missing_inputs": missing_inputs,
             }
-            return
+            return data["net_rm_cost_validation"]
         try:
             gross_weight = float(data["gross_weight"])
             material_rate = float(data["material_rate"])
@@ -2960,9 +2986,10 @@ Return nothing rather than guessing."""
             data["net_rm_cost_validation"] = {
                 "status": "cannot_validate",
                 "matches": None,
+                "blocked": False,
                 "reason": "One or more Net RM Cost inputs are non-numeric.",
             }
-            return
+            return data["net_rm_cost_validation"]
         gross_material_cost = gross_weight * material_rate
         scrap_recovery = scrap_weight * scrap_rate
         calculated_net_rm_cost = (
@@ -2980,6 +3007,7 @@ Return nothing rather than guessing."""
             data["net_rm_cost_validation"] = {
                 "status": "excel_value_missing",
                 "matches": None,
+                "blocked": False,
                 "excel_value": None,
                 "calculated_value": calculated_rounded,
                 "gross_material_cost": round(
@@ -2991,7 +3019,7 @@ Return nothing rather than guessing."""
                     2
                 ),
             }
-            return
+            return data["net_rm_cost_validation"]
         try:
             excel_rounded = round(
                 float(excel_value),
@@ -3001,16 +3029,19 @@ Return nothing rather than guessing."""
             data["net_rm_cost_validation"] = {
                 "status": "cannot_validate",
                 "matches": None,
+                "blocked": False,
                 "reason": "Excel Net RM Cost is non-numeric.",
                 "calculated_value": calculated_rounded,
             }
-            return
+            return data["net_rm_cost_validation"]
         matches = (
             calculated_rounded == excel_rounded
         )
         data["net_rm_cost_validation"] = {
             "status": "matched" if matches else "mismatch",
             "matches": matches,
+            "blocked": not matches,
+            "error": None if matches else self.NET_RM_COST_ERROR,
             "excel_value": excel_rounded,
             "calculated_value": calculated_rounded,
             "difference": round(
@@ -3032,6 +3063,12 @@ Return nothing rather than guessing."""
                 "scrap_rate": scrap_rate,
             },
         }
+        return data["net_rm_cost_validation"]
+
+    def _raise_if_net_rm_cost_blocked(self, session: dict[str, Any]) -> None:
+        validation = session.get("extracted_data", {}).get("net_rm_cost_validation", {})
+        if validation.get("blocked"):
+            raise ValueError(self.NET_RM_COST_ERROR)
         
     def _recalculate_adjusted_net_rm_cost(
         self,
