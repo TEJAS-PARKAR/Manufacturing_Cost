@@ -3247,13 +3247,13 @@ Return nothing rather than guessing."""
                     if val is not None:
                         result["conversion_cost"] = val
             # Overall Grinding & Chipping Cost
-            elif "GRINDING" in row_str and "CHIPPING" in row_str:
+            elif "GRINDING" in text and "CHIPPING" in text:
                 if cost is not None:
-                    extracted["grinding_chipping_cost"] = cost
+                    result["grinding_chipping_cost"] = cost
             # Identification Mark
-            elif "IDENTIFICATION MARK" in row_str:
+            elif "IDENTIFICATION MARK" in text:
                 if cost is not None:
-                    extracted["identification_mark_cost"] = cost
+                    result["identification_mark_cost"] = cost
             # Surface protection / coating
             elif "SURFACE PROTECTION" in text or "COATING" in text or "PLATING" in text:
                 if cost is not None:
