@@ -20,7 +20,9 @@ function getWorkflowStep(session, showAllowancePrompt) {
   const extracted = session.extracted_data || {};
   const sheetOpt = session.sheet_optimization || {};
   const awaiting = session.awaiting_allowance_response;
+  const netRmBlocked = extracted.net_rm_cost_validation?.blocked === true;
 
+  if (netRmBlocked) return 'upload';
   if (extracted.total_cost == null) return 'upload';
   if (awaiting || showAllowancePrompt) return 'allowance';
   if (!sheetOpt.is_optimal && sheetOpt.is_optimal !== true) return 'validation';
@@ -43,6 +45,8 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
   const extracted = session.extracted_data || {};
   const status = session.status || 'active';
   const sheetOpt = session.sheet_optimization || {};
+  const netRmValidation = extracted.net_rm_cost_validation || null;
+  const netRmBlocked = netRmValidation?.blocked === true;
 
   // ── Restore state from session on mount / session change ──
   useEffect(() => {
@@ -66,11 +70,12 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
   const sheetNotOptimal = sheetOpt && sheetOpt.is_optimal === false;
   const isRejected = status === 'rejected';
 
-  const chatBlocked = needsExcelUpload || awaitingAllowance || (extracted.total_cost != null && sheetNotValidated) || sheetNotOptimal || isRejected;
+  const chatBlocked = netRmBlocked || needsExcelUpload || awaitingAllowance || (extracted.total_cost != null && sheetNotValidated) || sheetNotOptimal || isRejected;
 
   // Determine which blocking message to show
   const getBlockingMessage = () => {
     if (isRejected) return { icon: '🚫', text: 'Session was rejected by Tata Motors. Please reopen the session to continue negotiation.' };
+    if (netRmBlocked) return { icon: '⚠️', text: 'There is an error in the Net RM cost calculation. Correct and Reupload the cost sheet' };
     if (needsExcelUpload) return { icon: '📄', text: 'Please upload a costing Excel sheet to begin the negotiation process.' };
     if (awaitingAllowance) return { icon: '✂️', text: 'Please answer the cutting allowance question above before proceeding.' };
     if (extracted.total_cost && sheetNotValidated) return { icon: '📋', text: 'Sheet optimization must be validated. Please answer the cutting allowance question.' };
@@ -80,6 +85,24 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
 
   const currentStep = getWorkflowStep(session, showAllowancePrompt);
 
+  const processRows = Array.isArray(extracted.process_information)
+    ? extracted.process_information.filter((item) => item && (item.process != null || item.cost != null))
+    : [];
+
+  const costBreakdownRows = [];
+  if (extracted.coating != null || extracted.coating_cost != null) {
+    costBreakdownRows.push({
+      label: 'Coating',
+      value: extracted.coating != null ? String(extracted.coating) : '—',
+    });
+    if (extracted.coating_cost != null) {
+      costBreakdownRows.push({
+        label: 'Coating Cost',
+        value: `₹ ${fmt(extracted.coating_cost)}`,
+      });
+    }
+  }
+
   // ── Excel upload handler ──
   const handleProcessExcel = async (file) => {
     setUploading(true);
@@ -88,9 +111,12 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     try {
       const result = await api.uploadExcel(employeeId, partNumber, file);
       setSession(result);
-      setAlert({ type: 'success', message: 'Excel data extracted and merged into the session.' });
-      // Show cutting allowance question after successful extraction
-      setShowAllowancePrompt(true);
+      const validationBlocked = result.extracted_data?.net_rm_cost_validation?.blocked === true;
+      setAlert(validationBlocked
+        ? { type: 'error', message: 'There is an error in the Net RM cost calculation. Correct and Reupload the cost sheet' }
+        : { type: 'success', message: 'Excel data extracted and merged into the session.' });
+      // Show cutting allowance only after the initial RM-cost validation passes.
+      setShowAllowancePrompt(!validationBlocked);
     } catch (err) {
       setAlert({ type: 'error', message: `Excel upload failed: ${err.message}` });
     } finally {
@@ -109,6 +135,9 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
       // Refresh session to get updated sheet_optimization data
       const updatedSession = await api.getSessionContext(employeeId, partNumber);
       setSession(updatedSession);
+      if (updatedSession.extracted_data?.net_rm_cost_validation?.blocked) {
+        setAlert({ type: 'error', message: 'There is an error in the Net RM cost calculation. Correct and Reupload the cost sheet' });
+      }
     } catch (err) {
       setAlert({ type: 'error', message: `Sheet optimization check failed: ${err.message}` });
     } finally {
@@ -331,7 +360,54 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
         <>
           <hr className="section-divider" />
           <div className="cost-split">
-            <CostChart session={session} />
+            <div className="cost-panel-left">
+              <CostChart session={session} />
+
+              <div className="process-info-panel">
+                <h4 className="section-subheading">Process Information</h4>
+                {processRows.length > 0 ? (
+                  <div className="process-info-card">
+                    <table className="cost-table process-table">
+                      <thead>
+                        <tr>
+                          <th>Process</th>
+                          <th>Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {processRows.map((item, index) => (
+                          <tr key={`${item.process || 'process'}-${index}`}>
+                            <td>{item.process ?? '—'}</td>
+                            <td>{item.cost != null ? `₹ ${fmt(item.cost)}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="section-empty">No process information extracted from the uploaded Excel.</p>
+                )}
+              </div>
+
+              {costBreakdownRows.length > 0 && (
+                <div className="process-info-panel">
+                  <h4 className="section-subheading">Cost Breakdown</h4>
+                  <div className="process-info-card">
+                    <table className="cost-table process-table cost-breakdown-table">
+                      <tbody>
+                        {costBreakdownRows.map((row, index) => (
+                          <tr key={`${row.label}-${index}`} className={row.isTotal ? 'total-cost-row' : ''}>
+                            <td>{row.label}</td>
+                            <td>{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <CostSummary session={session} />
           </div>
         </>
