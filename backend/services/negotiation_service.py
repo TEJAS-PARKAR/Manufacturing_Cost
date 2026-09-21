@@ -2371,16 +2371,13 @@ Return nothing rather than guessing."""
             counter = expected
             reply = (
                 f"Thank you for your message. Your quoted cost of ₹{quote} is slightly above "
-                f"our benchmark. We propose a counter-offer of ₹{counter}. "
-                f"Please review and confirm."
+                f"our benchmark."
             )
             counter_offer = counter
             status = "continue"
         else:
             reply = (
-                f"Your quoted cost of ₹{quote} exceeds our benchmark by {variance}%. "
-                f"Our expected cost is ₹{expected}. Please revise your costing sheet "
-                f"and provide a more competitive offer."
+                f"Your quoted cost of ₹{quote} exceeds our benchmark"
             )
             counter_offer = expected
             status = "continue"
