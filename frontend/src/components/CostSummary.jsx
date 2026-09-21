@@ -71,7 +71,7 @@ const EXCLUDED_KEYS = new Set([
   'scrap_recovery',
   'yield_percentage',
   'coating',
-  'coating_cost',
+  // 'coating_cost',
   'adjusted_net_rm_cost',
   'net_rm_cost_validation',
   'allowance_applied',

@@ -737,7 +737,6 @@ class SupplierNegotiationService:
         extracted: dict[str, Any] = {}
         if not all_rows:
             return extracted
-
         # 1. Metadata scan (Part Number, RM Specs, etc.)
         for row in all_rows:
             row_str = " ".join(str(c).strip() for c in row if c is not None)
@@ -751,7 +750,6 @@ class SupplierNegotiationService:
             )
             if pn_match and "part_number" not in extracted:
                 extracted["part_number"] = pn_match.group(1).strip()
-
             # Material Specs
             spec_match = re.search(
                 r"(?:Raw\s*Material\s*Specs|RM\s*Specs|Material\s*Spec[s]?)[.:-]*\s*(.+)",
@@ -794,6 +792,16 @@ class SupplierNegotiationService:
                     val = self._find_row_cost_value(all_rows[i + 1])
                 if val is not None:
                     extracted["conversion_cost"] = val
+
+            # Overall Grinding & Chipping Cost
+            elif "GRINDING" in row_str and "CHIPPING" in row_str:
+                if cost is not None:
+                    extracted["grinding_chipping_cost"] = cost
+
+            # Identification Mark
+            elif "IDENTIFICATION MARK" in row_str:
+                if cost is not None:
+                    extracted["identification_mark_cost"] = cost
 
             # Coating / Surface Protection
             elif any(term in row_str for term in ["SURFACE PROTECTION", "PLATING", "COATING"]):
@@ -1238,6 +1246,8 @@ class SupplierNegotiationService:
                 "blank_weight": "number — full sheet weight in kg",
                 "raw_material_cost": 'number — NET material cost per piece (look for "NET MATL. COST" or "RM COST")',
                 "conversion_cost": 'number — total conversion cost per piece (look for "TOTAL CON. COST")',
+                "grinding_chipping_cost": "number — Overall Grinding & Chipping cost per piece",
+                "identification_mark_cost": "number — Identification Mark cost per piece",
                 "coating_cost": "number — sum of all coating/surface protection costs per piece",
                 "overhead_cost": "number — overhead per piece",
                 "icc_cost": "number — ICC on raw material per piece",
@@ -1561,6 +1571,8 @@ Return nothing rather than guessing."""
             "yield_percentage",
             "raw_material_cost",
             "conversion_cost",
+            "grinding_chipping_cost",
+            "identification_mark_cost",
             "coating_cost",
             "overhead_cost",
             "icc_cost",
@@ -3234,6 +3246,14 @@ Return nothing rather than guessing."""
                         val = self._find_row_cost_value(rows[i + 1])
                     if val is not None:
                         result["conversion_cost"] = val
+            # Overall Grinding & Chipping Cost
+            elif "GRINDING" in row_str and "CHIPPING" in row_str:
+                if cost is not None:
+                    extracted["grinding_chipping_cost"] = cost
+            # Identification Mark
+            elif "IDENTIFICATION MARK" in row_str:
+                if cost is not None:
+                    extracted["identification_mark_cost"] = cost
             # Surface protection / coating
             elif "SURFACE PROTECTION" in text or "COATING" in text or "PLATING" in text:
                 if cost is not None:
