@@ -1071,6 +1071,65 @@ html, body {
   margin-bottom: 1rem;
 }
 
+.revision-history {
+  display: grid;
+  gap: 1rem;
+}
+
+.revision-history .buyer-action-card {
+  padding: 1.1rem 1.25rem;
+}
+
+.revision-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.65rem;
+}
+
+.revision-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.revision-table th,
+.revision-table td {
+  border: 1px solid #E9ECEF;
+  padding: 0.45rem 0.6rem;
+  vertical-align: middle;
+}
+
+.revision-table th {
+  background: #F8F9FA;
+  color: #1B3A5C;
+  font-weight: 700;
+  text-align: left;
+}
+
+.revision-table td:not(:first-child),
+.revision-table th:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.revision-process-section {
+  margin-top: 1rem;
+}
+
+.revision-process-section > strong {
+  color: #1B3A5C;
+  font-size: 0.88rem;
+}
+
+.revision-process-table {
+  min-width: 500px;
+}
+
+.revision-process-table td:last-child,
+.revision-process-table th:last-child {
+  text-align: left;
+}
+
 @media (max-width: 768px) {
   .buyer-actions {
     grid-template-columns: 1fr;

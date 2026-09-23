@@ -16,6 +16,148 @@ const REJECT_REASONS = [
   'Other',
 ];
 
+const REVISION_FIELD_LABELS = {
+  quantity: 'Quantity',
+  blank_weight: 'Blank Weight',
+  gross_weight: 'Gross Weight',
+  finished_weight: 'Finished Weight',
+  part_weight: 'Part Weight',
+  scrap_weight: 'Scrap Weight',
+  material_rate: 'Material Rate',
+  raw_material_cost: 'Net RM Cost',
+  conversion_cost: 'Conversion Cost',
+  grinding_chipping_cost: 'Grinding & Chipping Cost',
+  identification_mark_cost: 'Identification Mark Cost',
+  coating_cost: 'Coating Cost',
+  overhead_cost: 'Overhead Cost',
+  icc_cost: 'ICC Cost',
+  rejection_cost: 'Rejection Cost',
+  rejection_recovery: 'Rejection Recovery',
+  profit: 'Profit',
+  packing_cost: 'Packing Cost',
+  transport_cost: 'Transport Cost',
+  total_cost: 'Total Cost',
+  sheet_length: 'Sheet Length',
+  sheet_width: 'Sheet Width',
+  sheet_thickness: 'Sheet Thickness',
+  part_length: 'Part Length',
+  part_width: 'Part Width',
+  part_thickness: 'Part Thickness',
+  length: 'Length',
+  width: 'Width',
+  thickness: 'Thickness',
+  scrap_rate: 'Scrap Rate',
+  yield_percentage: 'Yield Percentage',
+  process_information: 'Process Information',
+};
+
+const REVISION_COST_FIELDS = new Set([
+  'raw_material_cost', 'conversion_cost', 'grinding_chipping_cost',
+  'identification_mark_cost', 'coating_cost', 'overhead_cost', 'icc_cost',
+  'rejection_cost', 'rejection_recovery', 'profit', 'packing_cost',
+  'transport_cost', 'total_cost',
+]);
+const REVISION_WEIGHT_FIELDS = new Set([
+  'blank_weight', 'gross_weight', 'finished_weight', 'part_weight', 'scrap_weight',
+]);
+const REVISION_DIMENSION_FIELDS = new Set([
+  'sheet_length', 'sheet_width', 'sheet_thickness', 'part_length', 'part_width',
+  'part_thickness', 'length', 'width', 'thickness',
+]);
+
+function formatRevisionValue(field, value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+  const formatted = value.toFixed(2);
+  if (REVISION_COST_FIELDS.has(field)) return `₹${formatted}`;
+  if (REVISION_WEIGHT_FIELDS.has(field)) return `${formatted} kg`;
+  if (REVISION_DIMENSION_FIELDS.has(field)) return `${formatted} mm`;
+  if (field === 'yield_percentage' || field === 'scrap_rate') return `${formatted}%`;
+  if (field === 'material_rate') return `₹${formatted}/kg`;
+  return formatted;
+}
+
+function formatRevisionTimestamp(timestamp) {
+  if (!timestamp) return '—';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function revisionFieldLabel(field) {
+  return REVISION_FIELD_LABELS[field] || field
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function processEntries(value) {
+  return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : [];
+}
+
+function processChanges(oldValue, newValue) {
+  const previous = new Map(processEntries(oldValue).map((item) => [String(item.process || ''), item]));
+  const updated = new Map(processEntries(newValue).map((item) => [String(item.process || ''), item]));
+  return [...new Set([...previous.keys(), ...updated.keys()])]
+    .filter((name) => previous.get(name)?.cost !== updated.get(name)?.cost)
+    .map((name) => ({
+      name: name || 'Unnamed Process',
+      previous: previous.get(name),
+      updated: updated.get(name),
+      status: !previous.has(name) ? 'Added' : !updated.has(name) ? 'Removed' : '',
+    }));
+}
+
+function RevisionValueTable({ changes }) {
+  return (
+    <div className="revision-table-wrap">
+      <table className="revision-table">
+        <thead>
+          <tr><th>Changed Field</th><th>Previous Value</th><th>Updated Value</th></tr>
+        </thead>
+        <tbody>
+          {changes.map((change) => (
+            <tr key={change.field}>
+              <td>{revisionFieldLabel(change.field)}</td>
+              <td>{formatRevisionValue(change.field, change.old_value)}</td>
+              <td>{formatRevisionValue(change.field, change.new_value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProcessChangeTable({ change }) {
+  const changes = processChanges(change.old_value, change.new_value);
+  if (changes.length === 0) return null;
+  return (
+    <div className="revision-process-section">
+      <strong>Process Information</strong>
+      <div className="revision-table-wrap">
+        <table className="revision-table revision-process-table">
+          <thead>
+            <tr><th>Process</th><th>Previous Cost</th><th>Updated Cost</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {changes.map((item) => (
+              <tr key={item.name}>
+                <td>{item.name}</td>
+                <td>{formatRevisionValue('conversion_cost', item.previous?.cost)}</td>
+                <td>{formatRevisionValue('conversion_cost', item.updated?.cost)}</td>
+                <td>{item.status || 'Changed'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function TataPortal({ employeeId, sessionRef }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -226,36 +368,23 @@ export default function TataPortal({ employeeId, sessionRef }) {
                   <div className="buyer-action-card" key={upload.upload_number}>
                     <h4>Upload {upload.upload_number}</h4>
                     <p className="caption">
-                      {upload.type === 'initial_upload' ? 'Initial costing sheet' : 'Reuploaded costing sheet'}<br />
-                      {upload.timestamp || '—'}<br />
-                      {upload.filename || '—'}
+                      {upload.type === 'initial_upload' ? 'Initial Costing Sheet' : 'Reuploaded Costing Sheet'}<br />
+                      Filename: {upload.filename || '—'}<br />
+                      Uploaded: {formatRevisionTimestamp(upload.timestamp)}
                     </p>
                     {upload.type === 'initial_upload' ? (
                       <p>Baseline costing sheet uploaded.</p>
-                    ) : upload.changes && upload.changes.length > 0 ? (
+                    ) : upload.changes && upload.changes.length > 0 ? (() => {
+                      const scalarChanges = upload.changes.filter((change) => change.field !== 'process_information');
+                      const processChange = upload.changes.find((change) => change.field === 'process_information');
+                      return (
                       <>
                         <strong>Changed Fields:</strong>
-                        <table className="cost-table">
-                          <tbody>
-                            {upload.changes.map((change) => {
-                              const labels = {
-                                material_rate: 'Material Rate',
-                                packing_cost: 'Packing Cost',
-                                raw_material_cost: 'Net RM Cost',
-                                conversion_cost: 'Conversion Cost',
-                                total_cost: 'Total Cost',
-                              };
-                              return (
-                                <tr key={change.field}>
-                                  <td>{labels[change.field] || change.field.replace(/_/g, ' ')}</td>
-                                  <td>{String(change.old_value ?? '—')} → {String(change.new_value ?? '—')}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                        {scalarChanges.length > 0 && <RevisionValueTable changes={scalarChanges} />}
+                        {processChange && <ProcessChangeTable change={processChange} />}
                       </>
-                    ) : (
+                      );
+                    })() : (
                       <p>No costing values changed in this upload.</p>
                     )}
                   </div>
@@ -334,7 +463,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
 
             <hr className="section-divider" />
 
-            {/* ── Benchmark Comparison ── */}
+            {/* ── Benchmark Comparison ──
             <h3 className="section-heading">Benchmark Comparison</h3>
             <div className="metric-grid-3">
               <MetricCard
@@ -351,7 +480,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
                 value={`₹ ${fmt(benchmark.variance)}`}
                 variant={(benchmark.variance || 0) <= 0 ? 'success' : 'danger'}
               />
-            </div>
+            </div> */}
 
             {/* ── Recommendation ── */}
             {benchmark.recommendation === 'accept' && (
@@ -366,7 +495,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
 
             <hr className="section-divider" />
 
-            {/* ── Negotiation Analysis ── */}
+            {/* ── Negotiation Analysis ──
             <h3 className="section-heading">Negotiation Analysis</h3>
             <div className="metric-grid-3">
               <MetricCard
@@ -383,7 +512,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
                 value={`${fmt(negotiation.variance)}%`}
                 variant={(negotiation.variance || 0) <= 5 ? 'success' : 'danger'}
               />
-            </div>
+            </div> */}
 
             <div className="alert alert-info">
               <strong>AI Recommendation:</strong>{' '}
