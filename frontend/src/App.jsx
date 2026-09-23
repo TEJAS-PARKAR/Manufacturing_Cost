@@ -15,7 +15,7 @@ export default function App() {
 
   const [session, setSession] = useState(null);
   const [employeeId, setEmployeeId] = useState('');
-  const [partNumber, setPartNumber] = useState('');
+  const [sessionRef, setSessionRef] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
 
   // ── Restore session on refresh (token persists in localStorage) ──
@@ -58,10 +58,10 @@ export default function App() {
   const handleStartSession = async (empId, partNum) => {
     setSessionLoading(true);
     setEmployeeId(empId);
-    setPartNumber(partNum);
     try {
-      const result = await api.getSessionContext(empId, partNum);
+      const result = await api.startSession(empId, partNum);
       setSession(result);
+      setSessionRef(result.session_ref);
     } catch (err) {
       alert(`Unable to load session: ${err.message}`);
     } finally {
@@ -97,14 +97,14 @@ export default function App() {
                 session={session}
                 setSession={setSession}
                 employeeId={employeeId}
-                partNumber={partNumber}
+                sessionRef={sessionRef}
               />
             )}
 
             {role === 'tata' && (
               <TataPortal
                 employeeId={employeeId}
-                partNumber={partNumber}
+                sessionRef={sessionRef}
               />
             )}
           </>

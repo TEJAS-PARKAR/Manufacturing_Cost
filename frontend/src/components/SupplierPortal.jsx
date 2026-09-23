@@ -29,7 +29,7 @@ function getWorkflowStep(session, showAllowancePrompt) {
   return 'negotiate';
 }
 
-export default function SupplierPortal({ session, setSession, employeeId, partNumber }) {
+export default function SupplierPortal({ session, setSession, employeeId, sessionRef }) {
   const [uploading, setUploading] = useState(false);
   const [negotiating, setNegotiating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -113,7 +113,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setAlert(null);
     setSheetOptResult(null);
     try {
-      const result = await api.uploadExcel(employeeId, partNumber, file);
+      const result = await api.uploadExcel(employeeId, sessionRef, file);
       setSession(result);
       const validationBlocked = result.extracted_data?.net_rm_cost_validation?.blocked === true;
       setAlert(validationBlocked
@@ -134,10 +134,10 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setCheckingSheet(true);
     setAlert(null);
     try {
-      const result = await api.checkSheetOptimization(employeeId, partNumber, includesAllowance);
+      const result = await api.checkSheetOptimization(employeeId, sessionRef, includesAllowance);
       setSheetOptResult(result);
       // Refresh session to get updated sheet_optimization data
-      const updatedSession = await api.getSessionContext(employeeId, partNumber);
+      const updatedSession = await api.getSessionContext(employeeId, sessionRef);
       setSession(updatedSession);
       if (updatedSession.extracted_data?.net_rm_cost_validation?.blocked) {
         setAlert({ type: 'error', message: 'There is an error in the Net RM cost calculation. Correct and Reupload the cost sheet' });
@@ -156,7 +156,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setNegotiating(true);
     setAlert(null);
     try {
-      const result = await api.negotiate(employeeId, partNumber, chatMessage);
+      const result = await api.negotiate(employeeId, sessionRef, chatMessage);
       setSession(result.session);
       setChatMessage('');
     } catch (err) {
@@ -171,7 +171,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setSubmitting(true);
     setAlert(null);
     try {
-      const result = await api.submitForReview(employeeId, partNumber);
+      const result = await api.submitForReview(employeeId, sessionRef);
       setSession(result);
       setAlert({ type: 'success', message: 'Session submitted to Tata Motors review dashboard!' });
     } catch (err) {
@@ -186,7 +186,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
     setReopening(true);
     setAlert(null);
     try {
-      const result = await api.reopenSession(employeeId, partNumber);
+      const result = await api.reopenSession(employeeId, sessionRef);
       setSession(result);
       setSheetOptResult(null);
       setAlert({ type: 'success', message: 'Session reopened for re-negotiation. Please upload a revised costing sheet.' });
@@ -208,7 +208,7 @@ export default function SupplierPortal({ session, setSession, employeeId, partNu
       </div>
 
       <div className="metric-grid">
-        <MetricCard label="Part Number" value={session.part_number || '—'} />
+        <MetricCard label="Part Reference" value={session.part_reference || '—'} />
         <MetricCard label="Material No." value={extracted.material || '—'} />
         <MetricCard label="Material Rate" value={`₹ ${fmt(extracted.material_rate)}`} variant="accent" />
         <MetricCard

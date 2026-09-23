@@ -4,7 +4,7 @@ This repository now supports the requested multi-stage supplier negotiation work
 
 ## What the platform does
 
-- Starts or resumes a negotiation session using the supplier employee ID and 12-digit part number.
+- Starts or resumes a negotiation session using the supplier employee ID and 12-digit part number. The part number is accepted only during initial establishment; subsequent browser requests use an opaque server-issued session reference.
 - Lets a supplier upload a costing Excel sheet for automated extraction of **Sheet Dimensions** (Full Sheet Size), **Part Dimensions** (Shear Size), material, material rate, quantity, coating, process information, gross weight, and other cost components.
 - Uses a two-stage Excel pipeline: raw table extraction first, then an interpretation layer for structured cost fields.
 - Supports LLM-assisted extraction through Groq when a Groq API key is configured, with heuristic fallback when it is not.
@@ -123,6 +123,15 @@ export MONGODB_URI="mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=t
 export MONGODB_DB_NAME="manufacturing_cost"
 export MONGODB_COLLECTION="supplier_sessions"
 ```
+
+Required session-identity secret:
+
+```bash
+export PART_NUMBER_HMAC_KEY="a-long-random-server-secret"
+export ENVIRONMENT="production"
+```
+
+`PART_NUMBER_HMAC_KEY` is used for HMAC-SHA256 part references and must be stable across backend restarts and deployments. Production startup/session establishment fails safely if it is missing. Development and tests use an ephemeral key with a warning; configure the variable for restart-persistent local sessions.
 
 Frontend environment variables (optional, create `frontend/.env`):
 

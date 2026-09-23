@@ -117,11 +117,11 @@ def start_supplier_session(payload: SupplierSessionRequest,
 
 @router.get("/supplier/session/context", response_model=SupplierSessionResponse,
             responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def get_supplier_session_context(employee_id: str, part_number: str,
+def get_supplier_session_context(employee_id: str, session_ref: str,
                                  identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, employee_id)
     try:
-        result = negotiation_service.get_session_context(employee_id, part_number)
+        result = negotiation_service.get_session_context(employee_id, session_ref)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -135,7 +135,7 @@ def supplier_session_message(payload: SupplierMessageRequest,
                              identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, payload.employee_id)
     try:
-        result = negotiation_service.record_supplier_message(payload.employee_id, payload.part_number, payload.message)
+        result = negotiation_service.record_supplier_message(payload.employee_id, payload.session_ref, payload.message)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -152,7 +152,7 @@ ALLOWED_EXCEL_TYPES = {
 
 @router.post("/supplier/session/upload-excel", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-async def supplier_session_upload_excel(employee_id: str, part_number: str,
+async def supplier_session_upload_excel(employee_id: str, session_ref: str,
                                         file: UploadFile = File(...),
                                         identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, employee_id)
@@ -171,7 +171,7 @@ async def supplier_session_upload_excel(employee_id: str, part_number: str,
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
             )
-        result = negotiation_service.ingest_excel(employee_id, part_number, content, filename or "costing.xlsx")
+        result = negotiation_service.ingest_excel(employee_id, session_ref, content, filename or "costing.xlsx")
         return SupplierSessionResponse(**result)
     except HTTPException:
         raise
@@ -183,11 +183,11 @@ async def supplier_session_upload_excel(employee_id: str, part_number: str,
 
 @router.post("/supplier/session/submit-review", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def submit_supplier_session(employee_id: str, part_number: str,
+def submit_supplier_session(employee_id: str, session_ref: str,
                             identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, employee_id)
     try:
-        result = negotiation_service.submit_for_review(employee_id, part_number)
+        result = negotiation_service.submit_for_review(employee_id, session_ref)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -199,18 +199,18 @@ def submit_supplier_session(employee_id: str, part_number: str,
 def negotiate(payload: SupplierMessageRequest,
               identity: dict = Depends(get_identity)):
     require_own_or_tata(identity, payload.employee_id)
-    return negotiation_service.run_negotiation(payload.employee_id, payload.part_number, payload.message)
+    return negotiation_service.run_negotiation(payload.employee_id, payload.session_ref, payload.message)
 
 
 @router.post("/supplier/session/check-sheet-optimization",
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def check_sheet_optimization(employee_id: str, part_number: str,
+def check_sheet_optimization(employee_id: str, session_ref: str,
                               includes_cutting_allowance: bool = True,
                               identity: dict = Depends(get_identity)):
     require_own_or_tata(identity, employee_id)
     try:
         return negotiation_service.check_sheet_optimization(
-            employee_id, part_number, includes_cutting_allowance
+            employee_id, session_ref, includes_cutting_allowance
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -219,11 +219,11 @@ def check_sheet_optimization(employee_id: str, part_number: str,
 
 @router.get("/supplier/session/review",
             responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def get_supplier_review_dashboard(employee_id: str, part_number: str,
+def get_supplier_review_dashboard(employee_id: str, session_ref: str,
                                   identity: dict = Depends(get_identity)) -> dict:
     require_tata(identity)
     try:
-        return negotiation_service.get_review_dashboard(employee_id, part_number)
+        return negotiation_service.get_review_dashboard(employee_id, session_ref)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
@@ -243,12 +243,12 @@ def list_supplier_sessions(status_filter: str | None = None,
 
 @router.post("/supplier/session/approve", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def approve_supplier_session(employee_id: str, part_number: str, payload: dict | None = None,
+def approve_supplier_session(employee_id: str, session_ref: str, payload: dict | None = None,
                              identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_tata(identity)
     try:
         approval_payload = payload or {"approved_values": {}}
-        result = negotiation_service.approve_cost_inputs(employee_id, part_number, approval_payload)
+        result = negotiation_service.approve_cost_inputs(employee_id, session_ref, approval_payload)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -257,20 +257,20 @@ def approve_supplier_session(employee_id: str, part_number: str, payload: dict |
 
 
 @router.post("/supplier/session/reject")
-def reject_offer(employee_id: str, part_number: str,
+def reject_offer(employee_id: str, session_ref: str,
                  reason: str = "Cost exceeds expected benchmark",
                  identity: dict = Depends(get_identity)):
     require_tata(identity)
-    return negotiation_service.reject_offer(employee_id, part_number, reason)
+    return negotiation_service.reject_offer(employee_id, session_ref, reason)
 
 
 @router.post("/supplier/session/reopen", response_model=SupplierSessionResponse,
              responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-def reopen_session(employee_id: str, part_number: str,
+def reopen_session(employee_id: str, session_ref: str,
                    identity: dict = Depends(get_identity)) -> SupplierSessionResponse:
     require_own_or_tata(identity, employee_id)
     try:
-        result = negotiation_service.reopen_after_rejection(employee_id, part_number)
+        result = negotiation_service.reopen_after_rejection(employee_id, session_ref)
         return SupplierSessionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

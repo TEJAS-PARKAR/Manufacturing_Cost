@@ -16,13 +16,14 @@ const REJECT_REASONS = [
   'Other',
 ];
 
-export default function TataPortal({ employeeId, partNumber }) {
+export default function TataPortal({ employeeId, sessionRef }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState(REJECT_REASONS[0]);
   const [alert, setAlert] = useState(null);
+  const [selectedSession, setSelectedSession] = useState({ employeeId: '', sessionRef: '' });
 
   // ── Session Discovery State ──
   const [sessionsList, setSessionsList] = useState([]);
@@ -45,15 +46,16 @@ export default function TataPortal({ employeeId, partNumber }) {
   }, []);
 
   // ── Load review dashboard ──
-  const handleLoadDashboard = async (targetEmpId, targetPartNum) => {
+  const handleLoadDashboard = async (targetEmpId, targetSessionRef) => {
     const emp = targetEmpId || employeeId;
-    const part = targetPartNum || partNumber;
-    if (!emp || !part) return;
+    const ref = targetSessionRef || sessionRef;
+    if (!emp || !ref) return;
 
     setLoading(true);
     setAlert(null);
     try {
-      const result = await api.getReviewDashboard(emp, part);
+      setSelectedSession({ employeeId: emp, sessionRef: ref });
+      const result = await api.getReviewDashboard(emp, ref);
       setDashboard(result);
     } catch (err) {
       setAlert({ type: 'error', message: `Review lookup failed: ${err.message}` });
@@ -67,10 +69,10 @@ export default function TataPortal({ employeeId, partNumber }) {
     setApproving(true);
     setAlert(null);
     try {
-      await api.approveSession(employeeId, partNumber);
+      await api.approveSession(selectedSession.employeeId || employeeId, selectedSession.sessionRef || sessionRef);
       setAlert({ type: 'success', message: 'Offer Approved Successfully!' });
       // Reload dashboard & list
-      const refreshed = await api.getReviewDashboard(employeeId, partNumber);
+      const refreshed = await api.getReviewDashboard(selectedSession.employeeId || employeeId, selectedSession.sessionRef || sessionRef);
       setDashboard(refreshed);
       fetchSessionsList();
     } catch (err) {
@@ -85,9 +87,9 @@ export default function TataPortal({ employeeId, partNumber }) {
     setRejecting(true);
     setAlert(null);
     try {
-      await api.rejectSession(employeeId, partNumber, rejectReason);
+      await api.rejectSession(selectedSession.employeeId || employeeId, selectedSession.sessionRef || sessionRef, rejectReason);
       setAlert({ type: 'success', message: 'Offer Rejected.' });
-      const refreshed = await api.getReviewDashboard(employeeId, partNumber);
+      const refreshed = await api.getReviewDashboard(selectedSession.employeeId || employeeId, selectedSession.sessionRef || sessionRef);
       setDashboard(refreshed);
       fetchSessionsList();
     } catch (err) {
@@ -128,7 +130,7 @@ export default function TataPortal({ employeeId, partNumber }) {
               <thead>
                 <tr>
                   <th>Supplier ID</th>
-                  <th>Part Number</th>
+                  <th>Part Reference</th>
                   <th>Material</th>
                   <th>Total Cost</th>
                   <th>Status</th>
@@ -139,7 +141,7 @@ export default function TataPortal({ employeeId, partNumber }) {
                 {sessionsList.map((s, idx) => (
                   <tr key={idx}>
                     <td><strong>{s.employee_id}</strong></td>
-                    <td>{s.part_number}</td>
+                    <td>{s.part_reference || '—'}</td>
                     <td>{s.material || '—'}</td>
                     <td>{s.total_cost ? `₹ ${fmt(s.total_cost)}` : '—'}</td>
                     <td><StatusBadge status={s.status} /></td>
@@ -147,7 +149,7 @@ export default function TataPortal({ employeeId, partNumber }) {
                       <button
                         className="btn-primary"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                        onClick={() => handleLoadDashboard(s.employee_id, s.part_number)}
+                        onClick={() => handleLoadDashboard(s.employee_id, s.session_ref)}
                         disabled={loading}
                       >
                         Inspect
@@ -162,7 +164,7 @@ export default function TataPortal({ employeeId, partNumber }) {
       </div>
 
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
-        <button className="btn-primary" onClick={() => handleLoadDashboard()} disabled={loading || !employeeId || !partNumber}>
+        <button className="btn-primary" onClick={() => handleLoadDashboard()} disabled={loading || !employeeId || !sessionRef}>
           {loading ? (
             <span className="spinner-overlay">
               <span className="spinner" />
@@ -182,6 +184,7 @@ export default function TataPortal({ employeeId, partNumber }) {
         const benchmark = dashboard.benchmark_comparison || {};
         const negotiation = session.negotiation || {};
         const sheetOpt = session.sheet_optimization || {};
+        const uploadHistory = session.upload_history || [];
         const status = session.status || 'active';
 
         return (
@@ -195,7 +198,7 @@ export default function TataPortal({ employeeId, partNumber }) {
             </div>
 
             <div className="metric-grid">
-              <MetricCard label="Part Number" value={session.part_number || '—'} />
+              <MetricCard label="Part Reference" value={session.part_reference || '—'} />
               <MetricCard label="Material No." value={extracted.material || '—'} />
               <MetricCard label="Material Rate" value={`₹ ${fmt(extracted.material_rate)}`} variant="accent" />
               <MetricCard
@@ -211,6 +214,53 @@ export default function TataPortal({ employeeId, partNumber }) {
               </div>
             ) : (
               <div className="alert alert-success">All mandatory fields available.</div>
+            )}
+
+            <hr className="section-divider" />
+            <h3 className="section-heading">Costing Sheet Revision History</h3>
+            {uploadHistory.length === 0 ? (
+              <p className="section-empty">No costing sheet uploads recorded.</p>
+            ) : (
+              <div className="revision-history">
+                {uploadHistory.map((upload) => (
+                  <div className="buyer-action-card" key={upload.upload_number}>
+                    <h4>Upload {upload.upload_number}</h4>
+                    <p className="caption">
+                      {upload.type === 'initial_upload' ? 'Initial costing sheet' : 'Reuploaded costing sheet'}<br />
+                      {upload.timestamp || '—'}<br />
+                      {upload.filename || '—'}
+                    </p>
+                    {upload.type === 'initial_upload' ? (
+                      <p>Baseline costing sheet uploaded.</p>
+                    ) : upload.changes && upload.changes.length > 0 ? (
+                      <>
+                        <strong>Changed Fields:</strong>
+                        <table className="cost-table">
+                          <tbody>
+                            {upload.changes.map((change) => {
+                              const labels = {
+                                material_rate: 'Material Rate',
+                                packing_cost: 'Packing Cost',
+                                raw_material_cost: 'Net RM Cost',
+                                conversion_cost: 'Conversion Cost',
+                                total_cost: 'Total Cost',
+                              };
+                              return (
+                                <tr key={change.field}>
+                                  <td>{labels[change.field] || change.field.replace(/_/g, ' ')}</td>
+                                  <td>{String(change.old_value ?? '—')} → {String(change.new_value ?? '—')}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </>
+                    ) : (
+                      <p>No costing values changed in this upload.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
 
 

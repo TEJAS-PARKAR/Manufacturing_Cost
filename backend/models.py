@@ -98,14 +98,19 @@ class SupplierSessionRequest(BaseModel):
         return pn
 
 
-class SupplierMessageRequest(SupplierSessionRequest):
+class SupplierSessionReferenceRequest(BaseModel):
+    employee_id: str = Field(..., min_length=1, description="Supplier employee identifier")
+    session_ref: str = Field(..., min_length=1, description="Opaque server-issued session reference")
+
+
+class SupplierMessageRequest(SupplierSessionReferenceRequest):
     message: str = Field(..., min_length=1, description="Supplier negotiation message")
 
 
 class SupplierSessionResponse(BaseModel):
     employee_id: str
-    part_number: str
-    session_key: Any  # serialized as list from JSON; avoid strict tuple validation
+    session_ref: str
+    part_reference: str
     status: str
     extracted_data: Dict[str, Any]
     raw_table: Dict[str, Any] = Field(default_factory=dict, exclude=True)
@@ -116,6 +121,7 @@ class SupplierSessionResponse(BaseModel):
     review: Dict[str, Any] = Field(default_factory=dict)
     negotiation: Dict[str, Any] = Field(default_factory=dict)
     revisions: List[Dict[str, Any]] = Field(default_factory=list)
+    upload_history: List[Dict[str, Any]] = Field(default_factory=list)
     sheet_optimization: Dict[str, Any] = Field(default_factory=dict)
     awaiting_allowance_response: bool = Field(default=False)
     rejection_remark: Optional[str] = None

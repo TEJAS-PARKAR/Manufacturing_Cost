@@ -76,8 +76,8 @@ export async function login(username, password) {
 
 // ---------- SESSION APIS (all now token-authenticated) ----------
 
-export async function getSessionContext(employeeId, partNumber) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function getSessionContext(employeeId, sessionRef) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const res = await apiFetch(`/supplier/session/context?${params}`);
   if (!res.ok) throw new Error(`Session lookup failed: ${res.statusText}`);
   return res.json();
@@ -93,8 +93,8 @@ export async function startSession(employeeId, partNumber) {
   return res.json();
 }
 
-export async function uploadExcel(employeeId, partNumber, file) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function uploadExcel(employeeId, sessionRef, file) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const formData = new FormData();
   formData.append('file', file);
   const res = await apiFetch(`/supplier/session/upload-excel?${params}`, {
@@ -105,48 +105,48 @@ export async function uploadExcel(employeeId, partNumber, file) {
   return res.json();
 }
 
-export async function negotiate(employeeId, partNumber, message) {
+export async function negotiate(employeeId, sessionRef, message) {
   const res = await apiFetch(`/supplier/session/negotiate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employee_id: employeeId, part_number: partNumber, message }),
+    body: JSON.stringify({ employee_id: employeeId, session_ref: sessionRef, message }),
   });
   if (!res.ok) throw new Error(`Negotiation failed: ${res.statusText}`);
   return res.json();
 }
 
-export async function submitForReview(employeeId, partNumber) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function submitForReview(employeeId, sessionRef) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const res = await apiFetch(`/supplier/session/submit-review?${params}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Submit for review failed: ${res.statusText}`);
   return res.json();
 }
 
-export async function getReviewDashboard(employeeId, partNumber) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function getReviewDashboard(employeeId, sessionRef) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const res = await apiFetch(`/supplier/session/review?${params}`);
   if (!res.ok) throw new Error(`Review lookup failed: ${res.statusText}`);
   return res.json();
 }
 
-export async function approveSession(employeeId, partNumber) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function approveSession(employeeId, sessionRef) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const res = await apiFetch(`/supplier/session/approve?${params}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Approval failed: ${res.statusText}`);
   return res.json();
 }
 
-export async function rejectSession(employeeId, partNumber, reason) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber, reason });
+export async function rejectSession(employeeId, sessionRef, reason) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef, reason });
   const res = await apiFetch(`/supplier/session/reject?${params}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Rejection failed: ${res.statusText}`);
   return res.json();
 }
 
-export async function checkSheetOptimization(employeeId, partNumber, includesCuttingAllowance = true) {
+export async function checkSheetOptimization(employeeId, sessionRef, includesCuttingAllowance = true) {
   const params = new URLSearchParams({
     employee_id: employeeId,
-    part_number: partNumber,
+    session_ref: sessionRef,
     includes_cutting_allowance: includesCuttingAllowance,
   });
   const res = await apiFetch(`/supplier/session/check-sheet-optimization?${params}`, { method: 'POST' });
@@ -154,8 +154,8 @@ export async function checkSheetOptimization(employeeId, partNumber, includesCut
   return res.json();
 }
 
-export async function reopenSession(employeeId, partNumber) {
-  const params = new URLSearchParams({ employee_id: employeeId, part_number: partNumber });
+export async function reopenSession(employeeId, sessionRef) {
+  const params = new URLSearchParams({ employee_id: employeeId, session_ref: sessionRef });
   const res = await apiFetch(`/supplier/session/reopen?${params}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Reopen session failed: ${res.statusText}`);
   return res.json();
@@ -168,4 +168,4 @@ export async function listSessions(statusFilter = '') {
   if (!res.ok) throw new Error(`Failed to list sessions: ${res.statusText}`);
   return res.json();
 }
-
+

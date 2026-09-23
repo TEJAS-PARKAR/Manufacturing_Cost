@@ -16,6 +16,7 @@ export default function SessionForm({ onStartSession, loading }) {
     }
     setWarning('');
     onStartSession(employeeId, partNumber);
+    setPartNumber('');
   };
 
   return (
