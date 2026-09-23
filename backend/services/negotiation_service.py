@@ -16,6 +16,8 @@ import requests
 from openpyxl import load_workbook
 from backend.services.mongo_service import MongoConnection
 from backend.services.part_number_service import (
+    decrypt_part_number,
+    encrypt_part_number,
     is_session_reference,
     normalize_part_number,
     part_hash_from_reference,
@@ -133,6 +135,7 @@ class SupplierNegotiationService:
         session = {
             "employee_id": employee_id,
             "part_hash": part_hash,
+            "encrypted_part_number": encrypt_part_number(part_number),
             "session_ref": session_reference(employee_id, part_hash),
             "status": "active",
             "extracted_data": {},
@@ -257,7 +260,7 @@ class SupplierNegotiationService:
         session["sheet_optimization"] = {}
         session["awaiting_allowance_response"] = False
         session.setdefault("revisions", [])
-        for key, new_value in interpretation.items():
+        for key, new_value in safe_interpretation.items():
             old_value = session["extracted_data"].get(key)
             if old_value != new_value:
                 session["revisions"].append({
@@ -417,14 +420,17 @@ class SupplierNegotiationService:
                     extracted = doc.get("extracted_data", {})
                     legacy_part = doc.get("part_number")
                     legacy_hash = part_number_hash(legacy_part) if legacy_part else ""
+                    display_part_number = self._display_part_number(doc)
                     if legacy_part:
                         migrated = self._hydrate_session(doc)
                         self._persist_session(migrated)
                         self.mongo_collection.delete_one({"_id": doc.get("_id")})
                         doc = self._serialize_session(migrated)
                         extracted = doc.get("extracted_data", {})
+                        display_part_number = migrated.get("part_number", self._display_part_number(migrated))
                     results.append({
                         "employee_id": doc.get("employee_id", ""),
+                        "part_number": display_part_number,
                         "session_ref": doc.get("session_ref") or session_reference(doc.get("employee_id", ""), legacy_hash),
                         "part_reference": doc.get("part_reference") or legacy_hash[:16],
                         "status": doc.get("status", "active"),
@@ -441,6 +447,7 @@ class SupplierNegotiationService:
             extracted = session.get("extracted_data", {})
             results.append({
                 "employee_id": session.get("employee_id", ""),
+                "part_number": self._display_part_number(session),
                 "session_ref": session.get("session_ref", ""),
                 "part_reference": session.get("part_hash", "")[:16],
                 "status": session.get("status", "active"),
@@ -479,6 +486,9 @@ class SupplierNegotiationService:
         session = self.sessions.get(key)
         # Memory cache exists — trust it
         if session is not None:
+            if raw_part_number and not session.get("encrypted_part_number"):
+                session["encrypted_part_number"] = encrypt_part_number(raw_part_number)
+                self._persist_session(session)
             # Move to end for LRU ordering
             self.sessions.move_to_end(key)
             return session
@@ -494,9 +504,13 @@ class SupplierNegotiationService:
                 doc = self.mongo_collection.find_one({"_id": legacy_storage_key})
             if doc:
                 session = self._hydrate_session(doc)
+                if raw_part_number and not session.get("encrypted_part_number"):
+                    session["encrypted_part_number"] = encrypt_part_number(raw_part_number)
                 if raw_part_number is not None and legacy_storage_key:
                     self._persist_session(session)
                     self.mongo_collection.delete_one({"_id": legacy_storage_key})
+                elif raw_part_number and session.get("encrypted_part_number"):
+                    self._persist_session(session)
                 self._cache_session(key, session)
                 return session
         return self._create_new_session(
@@ -511,6 +525,7 @@ class SupplierNegotiationService:
             "employee_id": session["employee_id"],
             "session_ref": session["session_ref"],
             "part_reference": session["part_hash"][:16],
+            "part_number": self._display_part_number(session),
             "status": session["status"],
             "extracted_data": session["extracted_data"],
             "excel_interpretation": session.get("excel_interpretation", {}),
@@ -539,8 +554,18 @@ class SupplierNegotiationService:
         }
         return self._redact_payload(public_session)
 
+    def _display_part_number(self, session: dict[str, Any]) -> str:
+        encrypted = session.get("encrypted_part_number")
+        if not encrypted:
+            return "Unavailable"
+        decrypted = decrypt_part_number(encrypted)
+        if decrypted is None:
+            logger.error("Unable to decrypt part number for session %s", session.get("session_ref", "unknown"))
+            return "Unavailable"
+        return decrypted
+
     def _redact_payload(self, value: Any, key: str | None = None) -> Any:
-        if key in {"session_ref", "part_reference"}:
+        if key in {"session_ref", "part_reference", "part_number"}:
             return value
         if isinstance(value, str):
             return re.sub(r"(?<!\d)\d{12}(?!\d)", "[REDACTED_PART_NUMBER]", value)
@@ -571,6 +596,7 @@ class SupplierNegotiationService:
         doc = self._serialize_session(session)
         doc.pop("raw_table", None)
         doc["part_hash"] = session["part_hash"]
+        doc["encrypted_part_number"] = session.get("encrypted_part_number")
         doc["_id"] = self._storage_key(
             session["employee_id"],
             session["part_hash"]
@@ -589,6 +615,9 @@ class SupplierNegotiationService:
         session.pop("_id", None)
         legacy_part_number = session.pop("part_number", None)
         session.pop("session_key", None)
+        if legacy_part_number and not session.get("encrypted_part_number"):
+            session["encrypted_part_number"] = encrypt_part_number(legacy_part_number)
+            session["_needs_migration"] = True
         session["part_hash"] = session.get("part_hash") or (
             session.get("session_ref", "").split("::", 1)[-1]
             if session.get("session_ref") and "::" in session.get("session_ref", "")

@@ -272,7 +272,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
               <thead>
                 <tr>
                   <th>Supplier ID</th>
-                  <th>Part Reference</th>
+                  <th>Part Number</th>
                   <th>Material</th>
                   <th>Total Cost</th>
                   <th>Status</th>
@@ -283,7 +283,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
                 {sessionsList.map((s, idx) => (
                   <tr key={idx}>
                     <td><strong>{s.employee_id}</strong></td>
-                    <td>{s.part_reference || '—'}</td>
+                    <td>{s.part_number || '—'}</td>
                     <td>{s.material || '—'}</td>
                     <td>{s.total_cost ? `₹ ${fmt(s.total_cost)}` : '—'}</td>
                     <td><StatusBadge status={s.status} /></td>
@@ -340,7 +340,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
             </div>
 
             <div className="metric-grid">
-              <MetricCard label="Part Reference" value={session.part_reference || '—'} />
+              <MetricCard label="Part Number" value={session.part_number || '—'} />
               <MetricCard label="Material No." value={extracted.material || '—'} />
               <MetricCard label="Material Rate" value={`₹ ${fmt(extracted.material_rate)}`} variant="accent" />
               <MetricCard

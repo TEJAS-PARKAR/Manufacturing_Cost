@@ -175,8 +175,8 @@ export default function CostSummary({ session }) {
         <tbody>
           {/* ── Material Info ── */}
           <tr>
-            <td>Part Reference</td>
-            <td>{session?.part_reference || '—'}</td>
+            <td>Part Number</td>
+            <td>{session?.part_number || '—'}</td>
           </tr>
           <tr>
             <td>Material Grade</td>

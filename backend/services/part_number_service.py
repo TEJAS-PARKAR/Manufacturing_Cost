@@ -6,6 +6,8 @@ import os
 import secrets
 import warnings
 
+from cryptography.fernet import Fernet, InvalidToken
+
 
 _DEV_KEY: bytes | None = None
 
@@ -38,6 +40,32 @@ def normalize_part_number(part_number: str) -> str:
 def part_number_hash(part_number: str) -> str:
     normalized = normalize_part_number(part_number)
     return hmac.new(_hmac_key(), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _encryption_key() -> bytes:
+    configured = os.getenv("PART_NUMBER_ENCRYPTION_KEY", "").strip()
+    if configured:
+        try:
+            Fernet(configured.encode("ascii"))
+        except (ValueError, UnicodeEncodeError):
+            raise RuntimeError("PART_NUMBER_ENCRYPTION_KEY must be a valid Fernet key.")
+        return configured.encode("ascii")
+    raise RuntimeError("PART_NUMBER_ENCRYPTION_KEY is required on the server.")
+
+
+def encrypt_part_number(part_number: str) -> str:
+    normalized = normalize_part_number(part_number)
+    return Fernet(_encryption_key()).encrypt(normalized.encode("utf-8")).decode("ascii")
+
+
+def decrypt_part_number(encrypted_part_number: str) -> str | None:
+    try:
+        value = Fernet(_encryption_key()).decrypt(
+            str(encrypted_part_number).encode("ascii")
+        ).decode("utf-8")
+        return normalize_part_number(value)
+    except (InvalidToken, UnicodeError, ValueError, TypeError):
+        return None
 
 
 def session_reference(employee_id: str, part_hash: str) -> str:

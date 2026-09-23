@@ -208,7 +208,7 @@ export default function SupplierPortal({ session, setSession, employeeId, sessio
       </div>
 
       <div className="metric-grid">
-        <MetricCard label="Part Reference" value={session.part_reference || '—'} />
+        <MetricCard label="Part Number" value={session.part_number || '—'} />
         <MetricCard label="Material No." value={extracted.material || '—'} />
         <MetricCard label="Material Rate" value={`₹ ${fmt(extracted.material_rate)}`} variant="accent" />
         <MetricCard

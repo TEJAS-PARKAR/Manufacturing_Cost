@@ -128,10 +128,17 @@ Required session-identity secret:
 
 ```bash
 export PART_NUMBER_HMAC_KEY="a-long-random-server-secret"
+export PART_NUMBER_ENCRYPTION_KEY="<fernet-key>"
 export ENVIRONMENT="production"
 ```
 
-`PART_NUMBER_HMAC_KEY` is used for HMAC-SHA256 part references and must be stable across backend restarts and deployments. Production startup/session establishment fails safely if it is missing. Development and tests use an ephemeral key with a warning; configure the variable for restart-persistent local sessions.
+`PART_NUMBER_HMAC_KEY` is used for HMAC-SHA256 part references and `PART_NUMBER_ENCRYPTION_KEY` is used for Fernet authenticated encryption of original part numbers. Both values must be stable across backend restarts and deployments. Generate the encryption key with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Configure the generated value as the Render environment variable `PART_NUMBER_ENCRYPTION_KEY`. The encryption key is never sent to React or stored in MongoDB. Production session establishment fails safely if either required key is missing.
 
 Frontend environment variables (optional, create `frontend/.env`):
 

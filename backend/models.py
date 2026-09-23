@@ -111,6 +111,7 @@ class SupplierSessionResponse(BaseModel):
     employee_id: str
     session_ref: str
     part_reference: str
+    part_number: str
     status: str
     extracted_data: Dict[str, Any]
     raw_table: Dict[str, Any] = Field(default_factory=dict, exclude=True)

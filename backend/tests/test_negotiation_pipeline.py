@@ -11,7 +11,8 @@ def test_session_memory_resumes_supplier_context_across_sessions() -> None:
 
     first_session = service.start_session(employee_id="EMP1001", part_number="123456789012")
     assert first_session["session_ref"].startswith("EMP1001::")
-    assert "123456789012" not in str(first_session)
+    assert first_session["part_number"] == "123456789012"
+    assert "encrypted_part_number" not in first_session
 
     service.record_supplier_message(
         employee_id="EMP1001",
@@ -23,7 +24,8 @@ def test_session_memory_resumes_supplier_context_across_sessions() -> None:
 
     assert resumed["employee_id"] == "EMP1001"
     assert resumed["session_ref"] == first_session["session_ref"]
-    assert "123456789012" not in str(resumed)
+    assert resumed["part_number"] == "123456789012"
+    assert "encrypted_part_number" not in resumed
     assert len(resumed["history"]) >= 1
     assert resumed["summary"]
 
@@ -192,7 +194,8 @@ def test_security_gate_returns_fixed_response_without_llm() -> None:
     expected = service.SAFE_REJECTION
     assert result["reply"] == expected
     assert result["session"]["history"][-1]["message"] == expected
-    assert "123456789012" not in str(result)
+    assert result["session"]["part_number"] == "123456789012"
+    assert "encrypted_part_number" not in result["session"]
 
 
 def test_upload_history_compares_consecutive_upload_snapshots() -> None:
