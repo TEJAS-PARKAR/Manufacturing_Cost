@@ -90,6 +90,8 @@ const PREFERRED_ORDER = [
   'rejection_cost',
   'rejection_recovery',
   'profit',
+  'packing_cost',
+  'transport_cost',
   'total_cost',
 ];
 
