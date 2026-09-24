@@ -415,7 +415,18 @@ class SupplierNegotiationService:
             if status_filter:
                 query["status"] = status_filter
             try:
-                cursor = self.mongo_collection.find(query).sort("session_ref", 1).limit(100)
+                projection = {
+                    "_id": 1,
+                    "employee_id": 1,
+                    "session_ref": 1,
+                    "part_hash": 1,
+                    "part_number": 1,
+                    "encrypted_part_number": 1,
+                    "status": 1,
+                    "extracted_data.material": 1,
+                    "extracted_data.total_cost": 1,
+                }
+                cursor = self.mongo_collection.find(query, projection).sort("session_ref", 1).limit(100)
                 for doc in cursor:
                     extracted = doc.get("extracted_data", {})
                     legacy_part = doc.get("part_number")
@@ -432,7 +443,6 @@ class SupplierNegotiationService:
                         "employee_id": doc.get("employee_id", ""),
                         "part_number": display_part_number,
                         "session_ref": doc.get("session_ref") or session_reference(doc.get("employee_id", ""), legacy_hash),
-                        "part_reference": doc.get("part_reference") or legacy_hash[:16],
                         "status": doc.get("status", "active"),
                         "material": extracted.get("material", "—"),
                         "total_cost": extracted.get("total_cost"),
@@ -449,7 +459,6 @@ class SupplierNegotiationService:
                 "employee_id": session.get("employee_id", ""),
                 "part_number": self._display_part_number(session),
                 "session_ref": session.get("session_ref", ""),
-                "part_reference": session.get("part_hash", "")[:16],
                 "status": session.get("status", "active"),
                 "material": extracted.get("material", "—"),
                 "total_cost": extracted.get("total_cost"),
@@ -595,6 +604,7 @@ class SupplierNegotiationService:
             return
         doc = self._serialize_session(session)
         doc.pop("raw_table", None)
+        doc.pop("part_number", None)
         doc["part_hash"] = session["part_hash"]
         doc["encrypted_part_number"] = session.get("encrypted_part_number")
         doc["_id"] = self._storage_key(

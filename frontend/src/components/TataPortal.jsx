@@ -283,7 +283,7 @@ export default function TataPortal({ employeeId, sessionRef }) {
                 {sessionsList.map((s, idx) => (
                   <tr key={idx}>
                     <td><strong>{s.employee_id}</strong></td>
-                    <td>{s.part_number || '—'}</td>
+                    <td>{s.part_number || 'Unavailable'}</td>
                     <td>{s.material || '—'}</td>
                     <td>{s.total_cost ? `₹ ${fmt(s.total_cost)}` : '—'}</td>
                     <td><StatusBadge status={s.status} /></td>
