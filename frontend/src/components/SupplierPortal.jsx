@@ -420,10 +420,10 @@ export default function SupplierPortal({ session, setSession, employeeId, sessio
       <hr className="section-divider" />
 
       {/* ── Negotiation Chat ── */}
-      <h3 className="section-heading">Negotiation Chat</h3>
+      {/* <h3 className="section-heading">Negotiation Chat</h3> */}
 
       {/* ── Blocking message with context ── */}
-      {chatBlocked && blockingMsg && (
+      {/* {chatBlocked && blockingMsg && (
         <div className={`negotiation-gate-banner fade-in ${isRejected ? 'rejected' : ''}`}>
           <span className="gate-banner-icon">{blockingMsg.icon}</span>
           <div className="gate-banner-content">
@@ -431,7 +431,7 @@ export default function SupplierPortal({ session, setSession, employeeId, sessio
             <p>{blockingMsg.text}</p>
           </div>
         </div>
-      )}
+      )} */}
 
       {/* ── Rejection details + Reopen button ── */}
       {isRejected && (
@@ -462,7 +462,7 @@ export default function SupplierPortal({ session, setSession, employeeId, sessio
         </div>
       )}
 
-      <ChatHistory history={session.history || []} currentUserRole="supplier" />
+      {/* <ChatHistory history={session.history || []} currentUserRole="supplier" />
 
       <form className={`chat-input-bar ${chatBlocked ? 'chat-disabled' : ''}`} onSubmit={handleSendMessage}>
         <input
@@ -479,9 +479,9 @@ export default function SupplierPortal({ session, setSession, employeeId, sessio
             </span>
           ) : 'Send'}
         </button>
-      </form>
+      </form> */}
 
-      <hr className="section-divider" />
+      {/* <hr className="section-divider" /> */}
 
       {/* ── Submit for review ── */}
       {status === 'active' && (
