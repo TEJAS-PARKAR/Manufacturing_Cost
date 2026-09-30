@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from openpyxl import Workbook
+import pytest
 
 from backend.models import SupplierSessionResponse
 from backend.services.negotiation_service import SupplierNegotiationService
@@ -141,6 +142,38 @@ def test_empty_llm_interpretation_falls_back_to_headers() -> None:
     assert result["material"] == "CRCA"
     assert result["material_rate"] == 65.0
     assert result["coating"] == "POWDER COATING"
+
+
+@pytest.mark.parametrize(
+    ("coating_cost_1", "coating_cost_2", "expected_total"),
+    [
+        (10, 5, 15),
+        (10, None, 10),
+        (None, 5, 5),
+        (None, None, 0),
+    ],
+)
+def test_coating_cost_sums_both_components_and_resists_fallback_overrides(
+    coating_cost_1: float | None,
+    coating_cost_2: float | None,
+    expected_total: float,
+) -> None:
+    service = SupplierNegotiationService()
+    service._interpret_with_llm = lambda raw_table, already_extracted=None: {
+        "coating_cost": 999,
+        "process_information": [{"process": "POWDER COATING", "cost": 999}],
+    }
+
+    result = service._interpret_excel_table({
+        "headers": [],
+        "rows": [
+            ["COATING COST 1", coating_cost_1],
+            ["COATING COST 2", coating_cost_2],
+        ],
+    })
+
+    assert result["coating_cost"] == expected_total
+    assert service._compute_expected_cost(result) == expected_total
 
 
 def test_session_response_preserves_allowance_gate_state() -> None:

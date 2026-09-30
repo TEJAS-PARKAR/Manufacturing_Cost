@@ -933,6 +933,8 @@ class SupplierNegotiationService:
                     extracted["material_grade"] = grade_match.group(0).strip()
 
         # 2. Cost summary scan
+        coating_sum = 0.0
+        has_coating = False
         for i, row in enumerate(all_rows):
             row_str = " ".join(str(c).strip().upper() for c in row if c is not None)
             if not row_str:
@@ -969,9 +971,10 @@ class SupplierNegotiationService:
                     extracted["identification_mark_cost"] = cost
 
             # Coating / Surface Protection
-            elif any(term in row_str for term in ["SURFACE PROTECTION", "PLATING", "COATING"]):
+            elif any(term in row_str for term in ["SURFACE PROTECTION", "PLATING", "COATING", "SHOT BLAST", "PRIMER"]):
+                has_coating = True
                 if cost is not None:
-                    extracted["coating_cost"] = cost
+                    coating_sum += cost
                 if "POWDER" in row_str:
                     extracted["coating"] = "POWDER COATING"
                 elif "ZINC" in row_str:
@@ -1018,6 +1021,9 @@ class SupplierNegotiationService:
             elif row_str.strip().startswith("TOTAL") or row_str.strip() == "TOTAL":
                 if cost is not None:
                     extracted["total_cost"] = cost
+
+        if has_coating:
+            extracted["coating_cost"] = round(coating_sum, 2)
 
         # 3. Raw Material Table scan
         for i, row in enumerate(all_rows):
@@ -1421,32 +1427,25 @@ class SupplierNegotiationService:
                 "coating": 'string — coating type (e.g. "POWDER COATING", "ZINC PLATING")',
                 "process_information": 'array of {"process": string, "cost": number} — individual process line items',
             }
-
             # Determine which fields the LLM still needs to find
             missing_fields = {
                 k: v for k, v in all_fields.items()
                 if k not in already_extracted
             }
-
             # If deterministic extraction found everything, skip the LLM call
             if not missing_fields:
                 logger.info("All fields already extracted deterministically, skipping LLM call")
                 return {}
-
             # Build the targeted prompt listing only missing fields
             missing_field_lines = "\n".join(
                 f'  "{k}": {v}' for k, v in missing_fields.items()
             )
             already_keys_str = ", ".join(sorted(already_extracted.keys()))
-
             system_prompt = f"""You are an expert in Tata Motors supplier costing sheets.
-
 The following fields have ALREADY been extracted and are LOCKED. Do NOT return them:
 [{already_keys_str}]
-
 Extract ONLY these missing fields from the sheet data:
 {missing_field_lines}
-
 RULES:
 1. Return a JSON object containing ONLY the missing fields you can find.
 2. Only process_information may be an array of objects. All other fields must be scalar values.
@@ -1462,7 +1461,6 @@ RULES:
 12. Return {{}} if no missing fields can be found.
 
 CRITICAL RULE FOR PACKING COST AND TRANSPORT COST:
-
 For packing_cost and transport_cost, use STRICT EVIDENCE ONLY.
 A cost value may only be assigned when the numeric value is explicitly associated with the corresponding label in the sheet.
 DO NOT infer relationships from nearby rows.
@@ -1472,7 +1470,6 @@ DO NOT use business interpretation.
 DO NOT guess.
 
 Examples:
-
   "Packing      7.43" → {{"packing_cost": 7.43}}
   "Transportation      3.50" → {{"transport_cost": 3.50}}
   "Transportation\\nPacking\\n7.43" → {{}} (value on separate row, not attached to either label)
@@ -1483,10 +1480,8 @@ Only return packing_cost or transport_cost if the sheet clearly proves the mappi
 If there is any ambiguity whatsoever, omit the field completely.
 It is preferable to return no value than to return an incorrect value.
 When uncertain, return {{}}.
-
 If a value cannot be explicitly associated with a field, do NOT return it.
 Return nothing rather than guessing."""
-
             payload = {
                 "model": self.groq_model,
                 "max_completion_tokens": 2048,
@@ -1509,7 +1504,6 @@ Return nothing rather than guessing."""
                         )
                     }
                 ],
-
                 "temperature": 0.1,
                 "response_format": {"type": "json_object"},
             }
@@ -1820,9 +1814,8 @@ Return nothing rather than guessing."""
             # Check coating patterns first
             for pattern in COATING_PATTERNS:
                 if re.search(pattern, name, re.IGNORECASE):
-                    if cost > 0:
-                        coating_sum += cost
-                        has_coating = True
+                    coating_sum += cost
+                    has_coating = True
                     # Also set coating type if not set
                     if not normalized.get("coating"):
                         if "POWDER" in name:
@@ -1843,7 +1836,7 @@ Return nothing rather than guessing."""
                     break
 
         # Set coating_cost from summed coating items
-        if has_coating and not normalized.get("coating_cost"):
+        if has_coating and normalized.get("coating_cost") in (None, ""):
             normalized["coating_cost"] = round(coating_sum, 2)
 
         # Extract total_cost from the last "TOTAL" entry
@@ -3402,6 +3395,8 @@ Return nothing rather than guessing."""
 
     def _extract_cost_fields_from_rows(self, rows):
         result = {}
+        coating_sum = 0.0
+        has_coating = False
         for i, row in enumerate(rows):
             text = " ".join(
                 str(x).upper()
@@ -3433,9 +3428,10 @@ Return nothing rather than guessing."""
                 if cost is not None:
                     result["identification_mark_cost"] = cost
             # Surface protection / coating
-            elif "SURFACE PROTECTION" in text or "COATING" in text or "PLATING" in text:
+            elif any(term in text for term in ["SURFACE PROTECTION", "COATING", "PLATING", "SHOT BLAST", "PRIMER"]):
+                has_coating = True
                 if cost is not None:
-                    result["coating_cost"] = cost
+                    coating_sum += cost
                 if "POWDER" in text:
                     result["coating"] = "POWDER COATING"
                 elif "ZINC" in text:
@@ -3476,6 +3472,8 @@ Return nothing rather than guessing."""
             elif text.strip().startswith("TOTAL") or text.strip() == "TOTAL":
                 if cost is not None:
                     result["total_cost"] = cost
+        if has_coating:
+            result["coating_cost"] = round(coating_sum, 2)
         # Fallback: if conversion_cost wasn't found, scan for it in rows following a "CONVERSION COST" header row
         if "conversion_cost" not in result:
             for i, row in enumerate(rows):
