@@ -1407,6 +1407,9 @@ html, body {
 
 /* ── Workflow Gate Indicator ── */
 .workflow-gate {
+  position: sticky;
+  top: 0.75rem;
+  z-index: 5;
   background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
   border: 1px solid #e9ecef;
   border-radius: 14px;
@@ -1436,8 +1439,24 @@ html, body {
   flex-direction: column;
   align-items: center;
   flex: 1;
+  min-width: 0;
   position: relative;
   z-index: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workflow-step:disabled {
+  cursor: default;
+}
+
+.workflow-step:focus-visible {
+  outline: 2px solid #1B3A5C;
+  outline-offset: 5px;
+  border-radius: 4px;
 }
 
 .workflow-step-icon {
@@ -1488,6 +1507,7 @@ html, body {
   font-weight: 600;
   color: #adb5bd;
   text-align: center;
+  overflow-wrap: anywhere;
   transition: color 0.3s ease;
 }
 
@@ -1498,6 +1518,11 @@ html, body {
 .workflow-step.current .workflow-step-label {
   color: #1B3A5C;
   font-weight: 700;
+}
+
+.workflow-step.selected .workflow-step-icon {
+  outline: 3px solid rgba(27, 58, 92, 0.2);
+  outline-offset: 3px;
 }
 
 .workflow-step-connector {
@@ -1514,6 +1539,105 @@ html, body {
 
 .workflow-step-connector.completed {
   background: linear-gradient(90deg, #00A86B, #28a745);
+}
+
+.workflow-stage {
+  min-height: 180px;
+  padding: 0.25rem 0 1rem;
+}
+
+.supplier-workflow-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  align-items: start;
+  gap: 1.25rem;
+  scroll-margin-top: 0.75rem;
+}
+
+.supplier-workflow-main {
+  min-width: 0;
+}
+
+.supplier-cost-summary {
+  position: sticky;
+  top: 0.75rem;
+  align-self: start;
+  max-height: calc(100vh - 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.supplier-cost-summary .section-heading {
+  margin-top: 0;
+}
+
+.cost-analysis {
+  margin: 1rem 0;
+}
+
+@media (max-width: 1024px) {
+  .supplier-workflow-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .supplier-cost-summary {
+    grid-row: 1;
+    position: sticky;
+    top: 0.5rem;
+    z-index: 6;
+    max-height: min(32vh, 260px);
+    padding: 0.75rem;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  .supplier-workflow-layout.has-cost-summary .workflow-gate {
+    top: calc(min(32vh, 260px) + 0.65rem);
+  }
+
+  .supplier-cost-summary .cost-table th,
+  .supplier-cost-summary .cost-table td {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.76rem;
+  }
+}
+
+.workflow-stage-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  color: #6C757D;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 480px) {
+  .workflow-gate {
+    padding: 1rem 0.75rem;
+  }
+
+  .workflow-step-icon {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+  }
+
+  .workflow-step-connector {
+    top: 16px;
+    left: calc(50% + 19px);
+    width: calc(100% - 38px);
+  }
+
+  .workflow-step-label {
+    font-size: 0.65rem;
+  }
+
+  .workflow-stage-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* ── Negotiation Gate Banner ── */
